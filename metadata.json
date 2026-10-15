@@ -1,0 +1,6 @@
+{
+  "name": "Marivex - 3D Ocean Exploration & Marine Telemetry",
+  "description": "Interactive 3D ocean visualizer and marine environmental telemetry platform featuring global bathymetric globe, subsurface depth profiling, live Open-Meteo & NOAA data, and oceanographic research report generation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
