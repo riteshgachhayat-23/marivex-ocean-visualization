@@ -1,1977 +1,898 @@
-import { useState } from "react";
-import { jsPDF } from "jspdf";
-import "./App.css";
-import OceanScene from "./OceanScene";
 
-type Location = {
-  latitude: number;
-  longitude: number;
-};
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
-type Parameter =
-  | "Temperature"
-  | "Salinity"
-  | "Current Speed";
+import { useState, useEffect, useCallback } from "react";
 
-type OceanData = {
-  temperature: number | null;
-  salinity: number | null;
-  currentSpeed: number | null;
-  currentDirection: number | null;
-  actualLatitude: number | null;
-  actualLongitude: number | null;
-  time: string | null;
-};
+import type {
+  Coordinates,
+  OceanObservation,
+  OceanParameter,
+  PresetLocation,
+  ContinentFeature,
+  OceanRegion,
+  HistoricalStormPreset,
+  OceanDataLayerId,
+  OceanAnomalyRecord,
+} from "./types/ocean";
 
-function App() {
-  const [selectedLocation, setSelectedLocation] =
-    useState<Location | null>(null);
+import {
+  fetchOceanData,
+  PRESET_LOCATIONS,
+} from "./utils/oceanData";
 
-  const [parameter, setParameter] =
-    useState<Parameter>("Temperature");
+import {
+  CONTINENTS,
+} from "./utils/oceanRegions";
 
-  const [depth, setDepth] = useState(100);
+import { Header } from "./components/Header";
+import { OceanGlobe } from "./components/OceanGlobe";
+import { ControlPanel } from "./components/ControlPanel";
+import { TelemetryPanel } from "./components/TelemetryPanel";
+import { ResearchModal } from "./components/ResearchModal";
+import { AboutModal } from "./components/AboutModal";
+import { ContinentOceanModal } from "./components/ContinentOceanModal";
+import { OceanTimeline } from "./components/OceanTimeline";
+import { WaveTimeSeriesChart } from "./components/WaveTimeSeriesChart";
+import { MarineOperationsModal } from "./components/MarineOperationsModal";
+import { AnomalyDetectionModal } from "./components/AnomalyDetectionModal";
+import { RegionComparisonModal } from "./components/RegionComparisonModal";
+import { BathymetricTransectModal } from "./components/BathymetricTransectModal";
+import { AskMarivexAssistant } from "./components/AskMarivexAssistant";
+import { UnderwaterBathymetryViewer } from "./components/UnderwaterBathymetryViewer";
 
-  const [time, setTime] = useState(12);
+import type {
+  MaritimeStation,
+} from "./utils/operationsData";
 
-  const [oceanData, setOceanData] = useState<OceanData>({
-    temperature: null,
-    salinity: null,
-    currentSpeed: null,
-    currentDirection: null,
-    actualLatitude: null,
-    actualLongitude: null,
-    time: null,
-  });
+import {
+  Globe,
+  MapPin,
+  Activity,
+  Sparkles,
+  Navigation,
+  ShieldAlert,
+  AlertCircle,
+  GitCompare,
+  Mountain,
+  Bot,
+  SlidersHorizontal,
+  PanelRight,
+  Clock3,
+  ChartNoAxesCombined,
+  X,
+  Layers,
+  ChevronDown,
+} from "lucide-react";
 
-  const [loading, setLoading] = useState(false);
+type DrawerType = "controls" | "telemetry" | null;
 
-  const [error, setError] = useState("");
+export default function App() {
+  // =========================================
+  // OCEAN DATA & VISUALIZATION STATE
+  // =========================================
 
-  const [darkMode, setDarkMode] = useState(true);
+  const [selectedCoords, setSelectedCoords] =
+    useState<Coordinates | null>({
+      latitude: 15.5,
+      longitude: 88.0,
+    });
 
-  /* =========================================================
-     EMPTY DATA
-     ========================================================= */
+  const [depth, setDepth] = useState(80);
+  const [hour, setHour] = useState(12);
 
-  const emptyOceanData = (): OceanData => ({
-    temperature: null,
-    salinity: null,
-    currentSpeed: null,
-    currentDirection: null,
-    actualLatitude: null,
-    actualLongitude: null,
-    time: null,
-  });
+  const [activeParam, setActiveParam] =
+    useState<OceanParameter>("Wave Height");
 
-  /* =========================================================
-     FETCH OCEAN DATA
-     ========================================================= */
+  const [oceanData, setOceanData] =
+    useState<OceanObservation | null>(null);
 
-  const fetchOceanData = async (
-    location: Location,
-    selectedDepth: number,
-    selectedTime: number
-  ) => {
-    const response = await fetch(
-      `https://ocean-visualization-platform-iuwn.onrender.com/api/ocean-data?lat=${encodeURIComponent(
-        location.latitude
-      )}&lon=${encodeURIComponent(
-        location.longitude
-      )}&depth=${encodeURIComponent(
-        selectedDepth
-      )}&time=${encodeURIComponent(selectedTime)}`
+  const [isLoading, setIsLoading] = useState(false);
+
+  const [activeContinent, setActiveContinent] =
+    useState<ContinentFeature | null>(null);
+
+  const [selectedRegion, setSelectedRegion] =
+    useState<OceanRegion | null>(null);
+
+  // Start with the globe, not the underwater viewer.
+  const [isUnderwater, setIsUnderwater] = useState(false);
+
+  const [verticalExaggeration, setVerticalExaggeration] =
+    useState(2.8);
+
+  const [selectedStorm, setSelectedStorm] =
+    useState<HistoricalStormPreset | null>(null);
+
+  const [activeLayer, setActiveLayer] =
+    useState<OceanDataLayerId>("waveHeight");
+
+  const [showVectorOverlay, setShowVectorOverlay] =
+    useState(true);
+
+  const [showStreamlines, setShowStreamlines] =
+    useState(true);
+
+  const [isOperationsModalOpen, setIsOperationsModalOpen] =
+    useState(false);
+
+  const [operationsStation, setOperationsStation] =
+    useState<MaritimeStation | null>(null);
+
+  const [isAssistantOpen, setIsAssistantOpen] =
+    useState(false);
+
+  const [isAnomalyModalOpen, setIsAnomalyModalOpen] =
+    useState(false);
+
+  const [pinnedAnomaly, setPinnedAnomaly] =
+    useState<OceanAnomalyRecord | null>(null);
+
+  const [isComparisonModalOpen, setIsComparisonModalOpen] =
+    useState(false);
+
+  const [isTransectModalOpen, setIsTransectModalOpen] =
+    useState(false);
+
+  const [isPlayingAudio, setIsPlayingAudio] =
+    useState(false);
+
+  const [isReportModalOpen, setIsReportModalOpen] =
+    useState(false);
+
+  const [isAboutModalOpen, setIsAboutModalOpen] =
+    useState(false);
+
+  // =========================================
+  // NEW MINIMAL DASHBOARD UI STATE
+  // =========================================
+
+  const [activeDrawer, setActiveDrawer] =
+    useState<DrawerType>(null);
+
+  const [showTools, setShowTools] = useState(false);
+  const [showTimeline, setShowTimeline] = useState(false);
+  const [showAnalysis, setShowAnalysis] = useState(false);
+
+  function toggleDrawer(drawer: Exclude<DrawerType, null>) {
+    setActiveDrawer((current) =>
+      current === drawer ? null : drawer
     );
+    setShowTools(false);
+  }
 
-    const data = await response.json();
+  // =========================================
+  // DATA LOADING
+  // =========================================
 
-    if (!response.ok) {
-      throw new Error(
-        data?.error ||
-          "Ocean data request failed."
-      );
-    }
+  const loadData = useCallback(
+    async (
+      coords: Coordinates,
+      targetDepth: number,
+      targetHour: number,
+      storm: HistoricalStormPreset | null
+    ) => {
+      setIsLoading(true);
 
-    return data;
-  };
+      try {
+        const data = await fetchOceanData(
+          coords,
+          targetDepth,
+          targetHour
+        );
 
-  /* =========================================================
-     LOCATION SELECT
-     ========================================================= */
+        if (storm) {
+          const stormPt =
+            storm.dataSeries.find(
+              (pt) => pt.hour === targetHour
+            ) || storm.dataSeries[0];
 
-  const handleLocationSelect = async (
-    location: Location
-  ) => {
-    setSelectedLocation(location);
+          data.waveHeight = stormPt.waveHeight;
+          data.wavePeriod = stormPt.wavePeriod;
+          data.waveDirection = stormPt.waveDirection;
+          data.windSpeed = stormPt.windSpeed;
+          data.windDirection = stormPt.windDirection;
 
-    setLoading(true);
+          data.dataSourceType = "HISTORICAL_REANALYSIS";
+          data.source = `Historical Reanalysis: ${storm.name}`;
+          data.timeSeries = storm.dataSeries;
+          data.time = `${storm.peakDate.substring(0, 10)} ${String(
+            targetHour
+          ).padStart(2, "0")}:00 UTC`;
+        }
 
-    setError("");
+        setOceanData(data);
+      } catch (error) {
+        console.error("Failed to load ocean data:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    []
+  );
 
-    setOceanData(emptyOceanData());
-
-    try {
-      const data = await fetchOceanData(
-        location,
+  useEffect(() => {
+    if (selectedCoords) {
+      loadData(
+        selectedCoords,
         depth,
-        time
+        hour,
+        selectedStorm
       );
-
-      setOceanData({
-        temperature:
-          typeof data.temperature === "number"
-            ? data.temperature
-            : null,
-
-        salinity:
-          typeof data.salinity === "number"
-            ? data.salinity
-            : null,
-
-        currentSpeed:
-          typeof data.currentSpeed === "number"
-            ? data.currentSpeed
-            : null,
-
-        currentDirection:
-          typeof data.currentDirection === "number"
-            ? data.currentDirection
-            : null,
-
-        actualLatitude:
-          typeof data.actualLatitude === "number"
-            ? data.actualLatitude
-            : null,
-
-        actualLongitude:
-          typeof data.actualLongitude === "number"
-            ? data.actualLongitude
-            : null,
-
-        time: data.time ?? null,
-      });
-    } catch (err) {
-      console.error(
-        "Ocean data error:",
-        err
-      );
-
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Unable to retrieve ocean data."
-      );
-    } finally {
-      setLoading(false);
     }
+  }, [
+    selectedCoords,
+    depth,
+    hour,
+    selectedStorm,
+    loadData,
+  ]);
+
+  // =========================================
+  // LOCATION & FEATURE HANDLERS
+  // =========================================
+
+  const handleSelectPreset = (preset: PresetLocation) => {
+    setSelectedCoords(preset.coordinates);
+    setDepth(preset.defaultDepth);
+    setSelectedRegion(null);
+    setPinnedAnomaly(null);
+    setOperationsStation(null);
+    setShowTools(false);
   };
 
-  /* =========================================================
-     REFRESH DATA
-     ========================================================= */
+  const handleSelectRegion = (region: OceanRegion) => {
+    setSelectedRegion(region);
+    setSelectedCoords(region.coordinates);
+    setPinnedAnomaly(null);
+    setOperationsStation(null);
+  };
 
-  const refreshData = async (
-    newDepth: number = depth,
-    newTime: number = time
+  const handleSelectContinent = (
+    continent: ContinentFeature
   ) => {
-    if (!selectedLocation) {
-      return;
-    }
-
-    setLoading(true);
-
-    setError("");
-
-    try {
-      const data = await fetchOceanData(
-        selectedLocation,
-        newDepth,
-        newTime
-      );
-
-      setOceanData({
-        temperature:
-          typeof data.temperature === "number"
-            ? data.temperature
-            : null,
-
-        salinity:
-          typeof data.salinity === "number"
-            ? data.salinity
-            : null,
-
-        currentSpeed:
-          typeof data.currentSpeed === "number"
-            ? data.currentSpeed
-            : null,
-
-        currentDirection:
-          typeof data.currentDirection === "number"
-            ? data.currentDirection
-            : null,
-
-        actualLatitude:
-          typeof data.actualLatitude === "number"
-            ? data.actualLatitude
-            : null,
-
-        actualLongitude:
-          typeof data.actualLongitude === "number"
-            ? data.actualLongitude
-            : null,
-
-        time: data.time ?? null,
-      });
-    } catch (err) {
-      console.error(
-        "Ocean data refresh error:",
-        err
-      );
-
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Unable to refresh ocean data."
-      );
-    } finally {
-      setLoading(false);
-    }
+    setActiveContinent(continent);
+    setShowTools(false);
   };
 
-  /* =========================================================
-     DEPTH
-     ========================================================= */
-
-  const handleDepthChange = (
-    value: number
+  const handleSelectStorm = (
+    storm: HistoricalStormPreset | null
   ) => {
-    setDepth(value);
+    setSelectedStorm(storm);
 
-    if (selectedLocation) {
-      refreshData(value, time);
+    if (storm) {
+      setSelectedCoords(storm.coordinates);
+      setPinnedAnomaly(null);
+      setOperationsStation(null);
     }
   };
 
-  /* =========================================================
-     TIME
-     ========================================================= */
-
-  const handleTimeChange = (
-    value: number
+  const handleSelectAnomaly = (
+    anomaly: OceanAnomalyRecord
   ) => {
-    setTime(value);
-
-    if (selectedLocation) {
-      refreshData(depth, value);
-    }
+    setPinnedAnomaly(anomaly);
+    setSelectedCoords(anomaly.coordinates);
+    setOperationsStation(null);
   };
 
-  /* =========================================================
-     PARAMETER VALUE
-     ========================================================= */
-
-  const getValue = () => {
-    if (loading) {
-      return "...";
-    }
-
-    if (
-      parameter === "Temperature"
-    ) {
-      return oceanData.temperature !== null
-        ? oceanData.temperature.toFixed(2)
-        : "--";
-    }
-
-    if (
-      parameter === "Salinity"
-    ) {
-      return oceanData.salinity !== null
-        ? oceanData.salinity.toFixed(2)
-        : "--";
-    }
-
-    return oceanData.currentSpeed !== null
-      ? oceanData.currentSpeed.toFixed(2)
-      : "--";
-  };
-
-  /* =========================================================
-     PARAMETER UNIT
-     ========================================================= */
-
-  const getUnit = () => {
-    if (
-      parameter === "Temperature"
-    ) {
-      return "°C";
-    }
-
-    if (
-      parameter === "Salinity"
-    ) {
-      return "PSU";
-    }
-
-    return "km/h";
-  };
-
-  /* =========================================================
-     PDF HELPERS
-     ========================================================= */
-
-  const addFooter = (
-    pdf: jsPDF,
-    pageNumber: number
+  const handleSelectOperationsStation = (
+    station: MaritimeStation
   ) => {
-    const pageWidth =
-      pdf.internal.pageSize.getWidth();
-
-    const pageHeight =
-      pdf.internal.pageSize.getHeight();
-
-    pdf.setDrawColor(
-      180,
-      205,
-      215
-    );
-
-    pdf.line(
-      18,
-      pageHeight - 18,
-      pageWidth - 18,
-      pageHeight - 18
-    );
-
-    pdf.setFont(
-      "helvetica",
-      "normal"
-    );
-
-    pdf.setFontSize(8);
-
-    pdf.setTextColor(
-      100,
-      120,
-      130
-    );
-
-    pdf.text(
-      "OceanVista3D • Interactive Ocean Visualization Platform",
-      18,
-      pageHeight - 10
-    );
-
-    pdf.text(
-      `Page ${pageNumber}`,
-      pageWidth - 35,
-      pageHeight - 10
-    );
+    setOperationsStation(station);
+    setSelectedCoords(station.coordinates);
+    setPinnedAnomaly(null);
   };
 
-  const addSectionTitle = (
-    pdf: jsPDF,
-    title: string,
-    y: number
-  ) => {
-    pdf.setFillColor(
-      5,
-      80,
-      105
-    );
-
-    pdf.roundedRect(
-      18,
-      y - 7,
-      174,
-      10,
-      2,
-      2,
-      "F"
-    );
-
-    pdf.setFont(
-      "helvetica",
-      "bold"
-    );
-
-    pdf.setFontSize(11);
-
-    pdf.setTextColor(
-      255,
-      255,
-      255
-    );
-
-    pdf.text(
-      title,
-      24,
-      y
-    );
-
-    pdf.setTextColor(
-      20,
-      35,
-      45
-    );
+  const handleFlyToTransect = (coords: Coordinates) => {
+    setSelectedCoords(coords);
+    setSelectedRegion(null);
+    setPinnedAnomaly(null);
+    setOperationsStation(null);
   };
 
-  const addKeyValue = (
-    pdf: jsPDF,
-    label: string,
-    value: string,
-    y: number
-  ) => {
-    pdf.setFont(
-      "helvetica",
-      "normal"
-    );
-
-    pdf.setFontSize(10);
-
-    pdf.setTextColor(
-      90,
-      110,
-      120
-    );
-
-    pdf.text(
-      label,
-      25,
-      y
-    );
-
-    pdf.setFont(
-      "helvetica",
-      "bold"
-    );
-
-    pdf.setTextColor(
-      20,
-      35,
-      45
-    );
-
-    pdf.text(
-      value,
-      105,
-      y
-    );
-  };
-
-  const addPageHeader = (
-    pdf: jsPDF,
-    subtitle: string
-  ) => {
-    pdf.setFillColor(
-      3,
-      28,
-      43
-    );
-
-    pdf.rect(
-      0,
-      0,
-      210,
-      27,
-      "F"
-    );
-
-    pdf.setFont(
-      "helvetica",
-      "bold"
-    );
-
-    pdf.setFontSize(16);
-
-    pdf.setTextColor(
-      255,
-      255,
-      255
-    );
-
-    pdf.text(
-      "OceanVista3D",
-      18,
-      12
-    );
-
-    pdf.setFont(
-      "helvetica",
-      "normal"
-    );
-
-    pdf.setFontSize(8);
-
-    pdf.setTextColor(
-      150,
-      220,
-      235
-    );
-
-    pdf.text(
-      subtitle.toUpperCase(),
-      18,
-      20
-    );
-
-    pdf.setTextColor(
-      20,
-      35,
-      45
-    );
-  };
-
-  /* =========================================================
-     PROFESSIONAL PDF REPORT
-     ========================================================= */
-
-  const generatePDFReport = () => {
-    if (!selectedLocation) {
-      setError(
-        "Please select an ocean location first."
-      );
-
-      return;
-    }
-
-    const pdf = new jsPDF({
-      orientation: "portrait",
-      unit: "mm",
-      format: "a4",
-    });
-
-    const pageWidth =
-      pdf.internal.pageSize.getWidth();
-
-    const pageHeight =
-      pdf.internal.pageSize.getHeight();
-
-    const latitude =
-      selectedLocation.latitude.toFixed(4);
-
-    const longitude =
-      selectedLocation.longitude.toFixed(4);
-
-    const actualLatitude =
-      oceanData.actualLatitude !== null
-        ? oceanData.actualLatitude.toFixed(4)
-        : "--";
-
-    const actualLongitude =
-      oceanData.actualLongitude !== null
-        ? oceanData.actualLongitude.toFixed(4)
-        : "--";
-
-    const temperature =
-      oceanData.temperature !== null
-        ? `${oceanData.temperature.toFixed(2)} °C`
-        : "--";
-
-    const salinity =
-      oceanData.salinity !== null
-        ? `${oceanData.salinity.toFixed(2)} PSU`
-        : "--";
-
-    const currentSpeed =
-      oceanData.currentSpeed !== null
-        ? `${oceanData.currentSpeed.toFixed(2)} km/h`
-        : "--";
-
-    const currentDirection =
-      oceanData.currentDirection !== null
-        ? `${oceanData.currentDirection.toFixed(0)}°`
-        : "--";
-
-    /* =======================================================
-       PAGE 1 — COVER
-       ======================================================= */
-
-    pdf.setFillColor(
-      3,
-      19,
-      31
-    );
-
-    pdf.rect(
-      0,
-      0,
-      pageWidth,
-      pageHeight,
-      "F"
-    );
-
-    /* Decorative ocean glow */
-
-    pdf.setFillColor(
-      0,
-      105,
-      135
-    );
-
-    pdf.circle(
-      170,
-      55,
-      38,
-      "F"
-    );
-
-    pdf.setFillColor(
-      3,
-      45,
-      63
-    );
-
-    pdf.circle(
-      170,
-      55,
-      30,
-      "F"
-    );
-
-    /* Small brand */
-
-    pdf.setFont(
-      "helvetica",
-      "bold"
-    );
-
-    pdf.setFontSize(13);
-
-    pdf.setTextColor(
-      90,
-      220,
-      240
-    );
-
-    pdf.text(
-      "OCEANVISTA3D",
-      20,
-      28
-    );
-
-    pdf.setFont(
-      "helvetica",
-      "normal"
-    );
-
-    pdf.setFontSize(8);
-
-    pdf.setTextColor(
-      150,
-      180,
-      190
-    );
-
-    pdf.text(
-      "INTERACTIVE MARINE DATA PLATFORM",
-      20,
-      35
-    );
-
-    /* Main title */
-
-    pdf.setFont(
-      "helvetica",
-      "bold"
-    );
-
-    pdf.setFontSize(27);
-
-    pdf.setTextColor(
-      245,
-      252,
-      255
-    );
-
-    pdf.text(
-      "Ocean Location",
-      20,
-      105
-    );
-
-    pdf.text(
-      "Research Report",
-      20,
-      118
-    );
-
-    /* Location box */
-
-    pdf.setFillColor(
-      8,
-      42,
-      57
-    );
-
-    pdf.roundedRect(
-      20,
-      140,
-      170,
-      45,
-      4,
-      4,
-      "F"
-    );
-
-    pdf.setFontSize(9);
-
-    pdf.setTextColor(
-      110,
-      220,
-      235
-    );
-
-    pdf.text(
-      "SELECTED LOCATION",
-      28,
-      151
-    );
-
-    pdf.setFontSize(15);
-
-    pdf.setTextColor(
-      255,
-      255,
-      255
-    );
-
-    pdf.text(
-      `${latitude}° N / ${longitude}° E`,
-      28,
-      163
-    );
-
-    pdf.setFontSize(9);
-
-    pdf.setTextColor(
-      165,
-      190,
-      200
-    );
-
-    pdf.text(
-      `Observation depth: ${depth} m`,
-      28,
-      175
-    );
-
-    pdf.text(
-      `Selected time: ${String(time).padStart(
-        2,
-        "0"
-      )}:00`,
-      110,
-      175
-    );
-
-    /* Report info */
-
-    pdf.setFontSize(9);
-
-    pdf.setTextColor(
-      130,
-      155,
-      165
-    );
-
-    pdf.text(
-      `Generated: ${new Date().toLocaleString()}`,
-      20,
-      245
-    );
-
-    pdf.text(
-      "Marine environmental observation and visualization report",
-      20,
-      253
-    );
-
-    pdf.setDrawColor(
-      60,
-      125,
-      145
-    );
-
-    pdf.line(
-      20,
-      260,
-      190,
-      260
-    );
-
-    pdf.setFontSize(8);
-
-    pdf.setTextColor(
-      105,
-      135,
-      145
-    );
-
-    pdf.text(
-      "Generated by OceanVista3D",
-      20,
-      275
-    );
-
-    pdf.text(
-      "Research visualization • Marine parameters • Spatial analysis",
-      20,
-      282
-    );
-
-    /* =======================================================
-       PAGE 2 — LOCATION & OBSERVATION
-       ======================================================= */
-
-    pdf.addPage();
-
-    addPageHeader(
-      pdf,
-      "Location and Observation"
-    );
-
-    addSectionTitle(
-      pdf,
-      "1. Selected Geographic Location",
-      42
-    );
-
-    addKeyValue(
-      pdf,
-      "Requested latitude",
-      `${latitude}°`,
-      57
-    );
-
-    addKeyValue(
-      pdf,
-      "Requested longitude",
-      `${longitude}°`,
-      67
-    );
-
-    addKeyValue(
-      pdf,
-      "Sea-grid latitude",
-      `${actualLatitude}°`,
-      77
-    );
-
-    addKeyValue(
-      pdf,
-      "Sea-grid longitude",
-      `${actualLongitude}°`,
-      87
-    );
-
-    addSectionTitle(
-      pdf,
-      "2. Observation Configuration",
-      108
-    );
-
-    addKeyValue(
-      pdf,
-      "Observation depth",
-      `${depth} m`,
-      123
-    );
-
-    addKeyValue(
-      pdf,
-      "Selected hour",
-      `${String(time).padStart(
-        2,
-        "0"
-      )}:00`,
-      133
-    );
-
-    addKeyValue(
-      pdf,
-      "Marine data timestamp",
-      oceanData.time || "--",
-      143
-    );
-
-    addSectionTitle(
-      pdf,
-      "3. Spatial Interpretation",
-      164
-    );
-
-    const spatialText =
-      `The selected position represents the geographic point inspected through the OceanVista3D ` +
-      `interactive 3D ocean visualization. The requested coordinates are mapped to an available ` +
-      `marine data grid, represented in the report by the sea-grid latitude and longitude. ` +
-      `This allows the selected location to be associated with the nearest available marine dataset.`;
-
-    pdf.setFont(
-      "helvetica",
-      "normal"
-    );
-
-    pdf.setFontSize(10);
-
-    pdf.setTextColor(
-      55,
-      75,
-      85
-    );
-
-    pdf.text(
-      pdf.splitTextToSize(
-        spatialText,
-        165
-      ),
-      25,
-      177
-    );
-
-    addSectionTitle(
-      pdf,
-      "4. Observation Purpose",
-      216
-    );
-
-    const purposeText =
-      `The purpose of the observation is to provide an interactive view of marine environmental ` +
-      `conditions at a selected ocean location. Temperature, salinity, current speed and current ` +
-      `direction are presented together to provide a broader physical description of the selected region.`;
-
-    pdf.text(
-      pdf.splitTextToSize(
-        purposeText,
-        165
-      ),
-      25,
-      229
-    );
-
-    addFooter(
-      pdf,
-      2
-    );
-
-    /* =======================================================
-       PAGE 3 — PARAMETER ANALYSIS
-       ======================================================= */
-
-    pdf.addPage();
-
-    addPageHeader(
-      pdf,
-      "Marine Parameter Analysis"
-    );
-
-    addSectionTitle(
-      pdf,
-      "5. Marine Environmental Parameters",
-      42
-    );
-
-    /* Parameter cards */
-
-    const cards = [
-      {
-        title: "TEMPERATURE",
-        value: temperature,
-        description:
-          "Thermal condition of the selected marine grid.",
-      },
-      {
-        title: "SALINITY",
-        value: salinity,
-        description:
-          "Salt concentration represented by the available dataset.",
-      },
-      {
-        title: "CURRENT SPEED",
-        value: currentSpeed,
-        description:
-          "Magnitude of the modeled marine current.",
-      },
-      {
-        title: "CURRENT DIRECTION",
-        value: currentDirection,
-        description:
-          "Direction associated with the marine current.",
-      },
-    ];
-
-    let cardY = 55;
-
-    cards.forEach((card) => {
-      pdf.setFillColor(
-        242,
-        248,
-        250
-      );
-
-      pdf.setDrawColor(
-        185,
-        215,
-        225
-      );
-
-      pdf.roundedRect(
-        20,
-        cardY,
-        170,
-        28,
-        3,
-        3,
-        "FD"
-      );
-
-      pdf.setFont(
-        "helvetica",
-        "bold"
-      );
-
-      pdf.setFontSize(8);
-
-      pdf.setTextColor(
-        0,
-        105,
-        130
-      );
-
-      pdf.text(
-        card.title,
-        27,
-        cardY + 8
-      );
-
-      pdf.setFontSize(17);
-
-      pdf.setTextColor(
-        20,
-        40,
-        50
-      );
-
-      pdf.text(
-        card.value,
-        27,
-        cardY + 19
-      );
-
-      pdf.setFont(
-        "helvetica",
-        "normal"
-      );
-
-      pdf.setFontSize(8);
-
-      pdf.setTextColor(
-        100,
-        120,
-        130
-      );
-
-      pdf.text(
-        card.description,
-        92,
-        cardY + 16
-      );
-
-      cardY += 34;
-    });
-
-    addSectionTitle(
-      pdf,
-      "6. Combined Physical Interpretation",
-      202
-    );
-
-    const interpretation =
-      `The four reported parameters should be interpreted together rather than as isolated values. ` +
-      `Temperature provides information about the thermal state of the marine environment, while salinity ` +
-      `describes its salt concentration. Current speed and direction describe the movement of water at the ` +
-      `selected location. Examining these variables simultaneously can help users understand spatial and ` +
-      `temporal differences within the visualized ocean field.`;
-
-    pdf.setFont(
-      "helvetica",
-      "normal"
-    );
-
-    pdf.setFontSize(10);
-
-    pdf.setTextColor(
-      55,
-      75,
-      85
-    );
-
-    pdf.text(
-      pdf.splitTextToSize(
-        interpretation,
-        165
-      ),
-      25,
-      216
-    );
-
-    addFooter(
-      pdf,
-      3
-    );
-
-    /* =======================================================
-       PAGE 4 — DEPTH / TIME STUDY
-       ======================================================= */
-
-    pdf.addPage();
-
-    addPageHeader(
-      pdf,
-      "Depth and Temporal Analysis"
-    );
-
-    addSectionTitle(
-      pdf,
-      "7. Depth Analysis",
-      42
-    );
-
-    const depthText =
-      `The current observation has been requested at a depth of ${depth} metres. ` +
-      `OceanVista3D allows the user to change the depth control and retrieve another observation ` +
-      `for the same selected geographic location. This provides a simple method for examining how ` +
-      `marine parameters change with depth within the available model or fallback representation.`;
-
-    pdf.setFont(
-      "helvetica",
-      "normal"
-    );
-
-    pdf.setFontSize(10);
-
-    pdf.setTextColor(
-      55,
-      75,
-      85
-    );
-
-    pdf.text(
-      pdf.splitTextToSize(
-        depthText,
-        165
-      ),
-      25,
-      55
-    );
-
-    addSectionTitle(
-      pdf,
-      "8. Time Analysis",
-      105
-    );
-
-    const timeText =
-      `The selected observation time is ${String(
-        time
-      ).padStart(
-        2,
-        "0"
-      )}:00. The time control allows different hourly observations to be requested from the marine ` +
-      `data service. Comparing observations at different times can help identify temporal variation in ` +
-      `temperature, salinity and current-related parameters.`;
-
-    pdf.text(
-      pdf.splitTextToSize(
-        timeText,
-        165
-      ),
-      25,
-      118
-    );
-
-    addSectionTitle(
-      pdf,
-      "9. Current Observation Snapshot",
-      168
-    );
-
-    addKeyValue(
-      pdf,
-      "Temperature",
-      temperature,
-      183
-    );
-
-    addKeyValue(
-      pdf,
-      "Salinity",
-      salinity,
-      193
-    );
-
-    addKeyValue(
-      pdf,
-      "Current speed",
-      currentSpeed,
-      203
-    );
-
-    addKeyValue(
-      pdf,
-      "Current direction",
-      currentDirection,
-      213
-    );
-
-    addKeyValue(
-      pdf,
-      "Depth",
-      `${depth} m`,
-      223
-    );
-
-    addKeyValue(
-      pdf,
-      "Time",
-      `${String(time).padStart(
-        2,
-        "0"
-      )}:00`,
-      233
-    );
-
-    addFooter(
-      pdf,
-      4
-    );
-
-    /* =======================================================
-       PAGE 5 — SOURCES & LIMITATIONS
-       ======================================================= */
-
-    pdf.addPage();
-
-    addPageHeader(
-      pdf,
-      "Sources and Research Notes"
-    );
-
-    addSectionTitle(
-      pdf,
-      "10. Data Sources",
-      42
-    );
-
-    addKeyValue(
-      pdf,
-      "Temperature",
-      "Open-Meteo Marine API",
-      57
-    );
-
-    addKeyValue(
-      pdf,
-      "Current",
-      "Open-Meteo Marine API",
-      67
-    );
-
-    addKeyValue(
-      pdf,
-      "Salinity",
-      "NOAA AOML / deterministic fallback",
-      77
-    );
-
-    addSectionTitle(
-      pdf,
-      "11. Data Processing",
-      100
-    );
-
-    const processingText =
-      `The OceanVista3D frontend sends the selected latitude, longitude, depth and time to the local ` +
-      `backend service. The backend retrieves or calculates the available marine parameters and returns ` +
-      `the observation to the visualization interface. The frontend then presents the values in the ` +
-      `telemetry panel and includes the same observation in this research report.`;
-
-    pdf.setFont(
-      "helvetica",
-      "normal"
-    );
-
-    pdf.setFontSize(10);
-
-    pdf.setTextColor(
-      55,
-      75,
-      85
-    );
-
-    pdf.text(
-      pdf.splitTextToSize(
-        processingText,
-        165
-      ),
-      25,
-      114
-    );
-
-    addSectionTitle(
-      pdf,
-      "12. Research Limitations",
-      162
-    );
-
-    const limitationsText =
-      `The report represents the data returned by the connected marine data services and the backend ` +
-      `processing used by OceanVista3D. Values should therefore be treated as model or service-derived ` +
-      `observations rather than direct measurements taken by a physical sensor at the selected point. ` +
-      `The exact spatial resolution and temporal availability depend on the underlying data services. ` +
-      `Where a deterministic fallback is used, this is identified in the data-source information.`;
-
-    pdf.text(
-      pdf.splitTextToSize(
-        limitationsText,
-        165
-      ),
-      25,
-      176
-    );
-
-    addSectionTitle(
-      pdf,
-      "13. Conclusion",
-      225
-    );
-
-    const conclusion =
-      `OceanVista3D provides an interactive method for exploring marine environmental conditions through ` +
-      `geographic selection, depth control, time control and multi-parameter telemetry. The generated ` +
-      `report consolidates the selected observation into a structured research document that can be used ` +
-      `for analysis, demonstration and project documentation.`;
-
-    pdf.text(
-      pdf.splitTextToSize(
-        conclusion,
-        165
-      ),
-      25,
-      239
-    );
-
-    addFooter(
-      pdf,
-      5
-    );
-
-    /* =======================================================
-       SAVE PDF
-       ======================================================= */
-
-    pdf.save(
-      `OceanVista3D_Research_Report_${latitude}_${longitude}.pdf`
-    );
-  };
-
-  /* =========================================================
-     RENDER
-     ========================================================= */
+  const locationLabel = selectedCoords
+    ? `${Math.abs(selectedCoords.latitude).toFixed(2)}°${
+        selectedCoords.latitude >= 0 ? "N" : "S"
+      }, ${Math.abs(selectedCoords.longitude).toFixed(2)}°${
+        selectedCoords.longitude >= 0 ? "E" : "W"
+      }`
+    : "Select an ocean location";
+
+  const viewportTitle = pinnedAnomaly
+    ? `Anomaly: ${pinnedAnomaly.regionName}`
+    : operationsStation
+    ? `Station: ${operationsStation.name}`
+    : selectedRegion
+    ? selectedRegion.name
+    : oceanData?.oceanBasin || "Global Ocean Explorer";
+
+  // =========================================
+  // MAIN APPLICATION
+  // =========================================
 
   return (
-    <div
-      className={`app ${
-        darkMode
-          ? "dark-mode"
-          : "light-mode"
-      }`}
-    >
+    <div className="min-h-screen bg-[#020813] text-[#f2fbff] flex flex-col selection:bg-cyan-500/30">
 
-      {/* =====================================================
-          HEADER
-      ===================================================== */}
+      {/* EXISTING HEADER */}
+      <Header
+        isPlayingAudio={isPlayingAudio}
+        setIsPlayingAudio={setIsPlayingAudio}
+        onOpenReportModal={() => setIsReportModalOpen(true)}
+        onOpenAboutModal={() => setIsAboutModalOpen(true)}
+        onOpenOperationsModal={() => setIsOperationsModalOpen(true)}
+        onOpenAnomalyModal={() => setIsAnomalyModalOpen(true)}
+        onOpenComparisonModal={() => setIsComparisonModalOpen(true)}
+        onOpenTransectModal={() => setIsTransectModalOpen(true)}
+        onToggleAssistant={() =>
+          setIsAssistantOpen(!isAssistantOpen)
+        }
+        isAssistantOpen={isAssistantOpen}
+        isUnderwater={isUnderwater}
+        onToggleUnderwater={() =>
+          setIsUnderwater(!isUnderwater)
+        }
+      />
 
-      <header className="header">
+      <main className="flex-1 w-full max-w-[2000px] mx-auto px-3 sm:px-5 lg:px-6 py-3 flex flex-col gap-3">
 
-        <div className="brand-row">
+        {/* ====================================
+            COMPACT MAIN TOOLBAR
+           ==================================== */}
 
-          <span className="brand-mark">
-            ◈
-          </span>
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-cyan-500/15 bg-[#061629]/90 px-3 py-2.5 backdrop-blur-xl">
 
-          <div>
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center">
+              <Globe className="w-5 h-5 text-cyan-300" />
+            </div>
 
-            <h1>
-              OceanVista3D
-            </h1>
-
-            <p>
-              Interactive ocean
-              visualization platform
-            </p>
-
+            <div className="min-w-0">
+              <div className="text-[11px] uppercase tracking-[0.17em] font-bold text-cyan-300">
+                Ocean Explorer
+              </div>
+              <div className="text-[11px] text-slate-400 truncate max-w-[250px]">
+                {viewportTitle}
+              </div>
+            </div>
           </div>
 
-        </div>
+          <div className="flex flex-wrap items-center gap-2">
 
-        <div className="header-right">
-
-          <button
-            className="theme-toggle"
-            onClick={() =>
-              setDarkMode(
-                !darkMode
-              )
-            }
-          >
-            {darkMode
-              ? "☀ Light Mode"
-              : "🌙 Dark Mode"}
-          </button>
-
-          <div className="telemetry">
-
-            <span className="telemetry-dot" />
-
-            {loading
-              ? "FETCHING DATA"
-              : "LIVE DATA FIELD"}
-
-          </div>
-
-          <div className="status">
-
-            {error
-              ? "DATA ERROR"
-              : "SYSTEM READY"}
-
-          </div>
-
-        </div>
-
-      </header>
-
-      {/* =====================================================
-          DASHBOARD
-      ===================================================== */}
-
-      <main className="dashboard">
-
-        {/* ===================================================
-            LEFT
-        =================================================== */}
-
-        <section className="control-panel futuristic-panel">
-
-          <div className="panel-label">
-            CONTROL MATRIX
-          </div>
-
-          <h2>
-            Data Controls
-          </h2>
-
-          <div className="field">
-
-            <label>
-              Parameter
-            </label>
-
-            <select
-              value={parameter}
-              onChange={(event) =>
-                setParameter(
-                  event.target
-                    .value as Parameter
-                )
-              }
+            <button
+              type="button"
+              onClick={() => toggleDrawer("controls")}
+              className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold transition-all ${
+                activeDrawer === "controls"
+                  ? "border-cyan-400 bg-cyan-500/20 text-cyan-100"
+                  : "border-white/10 bg-white/5 text-slate-300 hover:text-white hover:border-cyan-500/40"
+              }`}
             >
+              <SlidersHorizontal className="w-4 h-4" />
+              Controls
+            </button>
 
-              <option value="Temperature">
-                Temperature
-              </option>
+            <button
+              type="button"
+              onClick={() => toggleDrawer("telemetry")}
+              className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold transition-all ${
+                activeDrawer === "telemetry"
+                  ? "border-cyan-400 bg-cyan-500/20 text-cyan-100"
+                  : "border-white/10 bg-white/5 text-slate-300 hover:text-white hover:border-cyan-500/40"
+              }`}
+            >
+              <PanelRight className="w-4 h-4" />
+              Telemetry
+            </button>
 
-              <option value="Salinity">
-                Salinity
-              </option>
-
-              <option value="Current Speed">
-                Current Speed
-              </option>
-
-            </select>
-
-          </div>
-
-          <div className="field">
-
-            <div className="slider-header">
-
-              <label>
-                Depth
-              </label>
-
-              <span>
-                {depth} m
-              </span>
-
-            </div>
-
-            <input
-              type="range"
-              min="0"
-              max="5000"
-              step="50"
-              value={depth}
-              onChange={(event) =>
-                handleDepthChange(
-                  Number(
-                    event.target.value
-                  )
-                )
+            <button
+              type="button"
+              onClick={() =>
+                setShowTimeline((current) => !current)
               }
-            />
+              className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold transition-all ${
+                showTimeline
+                  ? "border-cyan-400 bg-cyan-500/20 text-cyan-100"
+                  : "border-white/10 bg-white/5 text-slate-300 hover:text-white hover:border-cyan-500/40"
+              }`}
+            >
+              <Clock3 className="w-4 h-4" />
+              Timeline
+            </button>
 
-          </div>
-
-          <div className="field">
-
-            <div className="slider-header">
-
-              <label>
-                Time
-              </label>
-
-              <span>
-                {String(time).padStart(
-                  2,
-                  "0"
-                )}
-                :00
-              </span>
-
-            </div>
-
-            <input
-              type="range"
-              min="0"
-              max="24"
-              value={time}
-              onChange={(event) =>
-                handleTimeChange(
-                  Number(
-                    event.target.value
-                  )
-                )
+            <button
+              type="button"
+              onClick={() =>
+                setShowAnalysis((current) => !current)
               }
-            />
-
-          </div>
-
-          <div className="control-readout">
-
-            <div>
-
-              <span>
-                ACTIVE PARAMETER
-              </span>
-
-              <strong>
-                {parameter}
-              </strong>
-
-            </div>
-
-            <div>
-
-              <span>
-                DEPTH
-              </span>
-
-              <strong>
-                {depth} m
-              </strong>
-
-            </div>
-
-            <div>
-
-              <span>
-                TIME
-              </span>
-
-              <strong>
-                {String(time).padStart(
-                  2,
-                  "0"
-                )}
-                :00
-              </strong>
-
-            </div>
-
-          </div>
-
-          <button
-            className="report-button"
-            onClick={
-              generatePDFReport
-            }
-            disabled={
-              !selectedLocation ||
-              loading
-            }
-          >
-            📄 Generate Research PDF
-          </button>
-
-        </section>
-
-        {/* ===================================================
-            CENTER 3D
-        =================================================== */}
-
-        <section className="ocean-view futuristic-panel">
-
-          <div className="globe">
-
-            <OceanScene
-              depth={depth}
-              oceanData={oceanData}
-              onLocationSelect={
-                handleLocationSelect
-              }
-            />
-
-          </div>
-
-          <div className="view-footer">
-
-            <div>
-
-              <div className="panel-label">
-                3D VISUALIZATION
-              </div>
-
-              <h2>
-                Global Ocean Field
-              </h2>
-
-            </div>
-
-            <div className="interaction-hint">
-
-              {selectedLocation
-                ? "LOCATION SELECTED"
-                : "CLICK OCEAN TO INSPECT"}
-
-            </div>
-
-          </div>
-
-        </section>
-
-        {/* ===================================================
-            RIGHT TELEMETRY
-        =================================================== */}
-
-        <section className="data-panel futuristic-panel">
-
-          <div className="panel-label">
-            LIVE TELEMETRY
-          </div>
-
-          <h2>
-            Location Properties
-          </h2>
-
-          {!selectedLocation ? (
-
-            <div className="location-card empty-state">
-
-              <div className="location-title">
-                NO LOCATION SELECTED
-              </div>
-
-              <p>
-                Click the ocean to
-                inspect its properties.
-              </p>
-
-            </div>
-
-          ) : (
-
-            <>
-
-              <div className="metric-card">
-
-                <span>
-                  {parameter.toUpperCase()}
-                </span>
-
-                <strong>
-                  {getValue()}
-                </strong>
-
-                <small>
-                  {getUnit()}
-                </small>
-
-              </div>
-
-              <div className="location-card">
-
-                <div className="location-title">
-                  OCEAN PROPERTIES
-                </div>
-
-                <div className="coordinate">
-
-                  <span>
-                    TEMPERATURE
-                  </span>
-
-                  <strong>
-                    {oceanData.temperature !==
-                    null
-                      ? `${oceanData.temperature.toFixed(
-                          2
-                        )} °C`
-                      : "--"}
-                  </strong>
-
-                </div>
-
-                <div className="coordinate">
-
-                  <span>
-                    SALINITY
-                  </span>
-
-                  <strong>
-                    {oceanData.salinity !==
-                    null
-                      ? `${oceanData.salinity.toFixed(
-                          2
-                        )} PSU`
-                      : "--"}
-                  </strong>
-
-                </div>
-
-                <div className="coordinate">
-
-                  <span>
-                    CURRENT SPEED
-                  </span>
-
-                  <strong>
-                    {oceanData.currentSpeed !==
-                    null
-                      ? `${oceanData.currentSpeed.toFixed(
-                          2
-                        )} km/h`
-                      : "--"}
-                  </strong>
-
-                </div>
-
-                <div className="coordinate">
-
-                  <span>
-                    CURRENT DIRECTION
-                  </span>
-
-                  <strong>
-                    {oceanData.currentDirection !==
-                    null
-                      ? `${oceanData.currentDirection.toFixed(
-                          0
-                        )}°`
-                      : "--"}
-                  </strong>
-
-                </div>
-
-              </div>
-
-              <div className="location-card">
-
-                <div className="location-title">
-                  SELECTED LOCATION
-                </div>
-
-                <div className="coordinate">
-
-                  <span>
-                    LATITUDE
-                  </span>
-
-                  <strong>
-                    {selectedLocation.latitude.toFixed(
-                      4
-                    )}°
-                  </strong>
-
-                </div>
-
-                <div className="coordinate">
-
-                  <span>
-                    LONGITUDE
-                  </span>
-
-                  <strong>
-                    {selectedLocation.longitude.toFixed(
-                      4
-                    )}°
-                  </strong>
-
-                </div>
-
-                {oceanData.actualLatitude !==
-                  null && (
-
-                  <div className="coordinate">
-
-                    <span>
-                      SEA GRID LATITUDE
+              className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold transition-all ${
+                showAnalysis
+                  ? "border-cyan-400 bg-cyan-500/20 text-cyan-100"
+                  : "border-white/10 bg-white/5 text-slate-300 hover:text-white hover:border-cyan-500/40"
+              }`}
+            >
+              <ChartNoAxesCombined className="w-4 h-4" />
+              Analysis
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setIsUnderwater((current) => !current);
+                setActiveDrawer(null);
+              }}
+              className="flex items-center gap-2 px-3 py-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-xs font-semibold text-emerald-200 hover:bg-emerald-500/20 transition-all"
+            >
+              {isUnderwater ? (
+                <Globe className="w-4 h-4" />
+              ) : (
+                <Mountain className="w-4 h-4" />
+              )}
+              {isUnderwater ? "3D Globe" : "Ocean Floor"}
+            </button>
+
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowTools((current) => !current);
+                  setActiveDrawer(null);
+                }}
+                className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold transition-all ${
+                  showTools
+                    ? "border-cyan-400 bg-cyan-500/20 text-cyan-100"
+                    : "border-white/10 bg-white/5 text-slate-200 hover:border-cyan-500/40"
+                }`}
+              >
+                <Layers className="w-4 h-4" />
+                More Tools
+                <ChevronDown className="w-3 h-3" />
+              </button>
+
+              {/* ADVANCED TOOLS DROPDOWN */}
+              {showTools && (
+                <div className="absolute right-0 top-full mt-3 z-[80] w-[min(90vw,360px)] max-h-[70vh] overflow-y-auto rounded-2xl border border-cyan-400/25 bg-[#061525] shadow-2xl shadow-black/70 p-3">
+
+                  <div className="flex items-center justify-between mb-3 px-1">
+                    <span className="text-[11px] uppercase tracking-widest font-bold text-cyan-300">
+                      Advanced Research Suite
                     </span>
-
-                    <strong>
-                      {oceanData.actualLatitude.toFixed(
-                        4
-                      )}°
-                    </strong>
-
+                    <button
+                      type="button"
+                      onClick={() => setShowTools(false)}
+                      aria-label="Close tools"
+                      className="text-slate-400 hover:text-white"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
                   </div>
 
-                )}
+                  <div className="grid grid-cols-1 gap-1.5">
 
-                {oceanData.actualLongitude !==
-                  null && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsOperationsModalOpen(true);
+                        setShowTools(false);
+                      }}
+                      className="mv-tool-item"
+                    >
+                      <ShieldAlert className="w-4 h-4 text-cyan-300" />
+                      Marine Operations
+                    </button>
 
-                  <div className="coordinate">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsAnomalyModalOpen(true);
+                        setShowTools(false);
+                      }}
+                      className="mv-tool-item"
+                    >
+                      <AlertCircle className="w-4 h-4 text-amber-300" />
+                      Anomaly Detection
+                    </button>
 
-                    <span>
-                      SEA GRID LONGITUDE
-                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsComparisonModalOpen(true);
+                        setShowTools(false);
+                      }}
+                      className="mv-tool-item"
+                    >
+                      <GitCompare className="w-4 h-4 text-cyan-300" />
+                      Compare Ocean Regions
+                    </button>
 
-                    <strong>
-                      {oceanData.actualLongitude.toFixed(
-                        4
-                      )}°
-                    </strong>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsTransectModalOpen(true);
+                        setShowTools(false);
+                      }}
+                      className="mv-tool-item"
+                    >
+                      <Mountain className="w-4 h-4 text-violet-300" />
+                      Seafloor Transects
+                    </button>
 
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsAssistantOpen(true);
+                        setShowTools(false);
+                      }}
+                      className="mv-tool-item"
+                    >
+                      <Bot className="w-4 h-4 text-cyan-300" />
+                      Ask MARIVEX AI
+                    </button>
                   </div>
 
-                )}
+                  <div className="mt-4 border-t border-white/10 pt-3">
+                    <div className="text-[10px] uppercase font-bold tracking-widest text-slate-400 mb-2">
+                      Explore Continents
+                    </div>
 
-                <div className="coordinate">
+                    <div className="flex flex-wrap gap-1.5">
+                      {CONTINENTS.map((continent) => (
+                        <button
+                          key={continent.id}
+                          type="button"
+                          onClick={() =>
+                            handleSelectContinent(continent)
+                          }
+                          className="px-2.5 py-1.5 text-[11px] rounded-lg border border-cyan-500/20 bg-cyan-500/5 text-cyan-100 hover:bg-cyan-500/20 transition-colors"
+                        >
+                          {continent.name.split(" / ")[0]}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
 
-                  <span>
-                    DEPTH
+                  <div className="mt-4 border-t border-white/10 pt-3">
+                    <div className="text-[10px] uppercase font-bold tracking-widest text-slate-400 mb-2">
+                      Marine Hotspots
+                    </div>
+
+                    <div className="flex flex-wrap gap-1.5">
+                      {PRESET_LOCATIONS.slice(0, 5).map(
+                        (preset) => (
+                          <button
+                            key={preset.id}
+                            type="button"
+                            onClick={() =>
+                              handleSelectPreset(preset)
+                            }
+                            className="px-2.5 py-1.5 text-[11px] rounded-lg border border-white/10 bg-white/5 text-slate-200 hover:border-cyan-400/40 hover:text-white transition-colors"
+                          >
+                            {preset.name.split(" (")[0]}
+                          </button>
+                        )
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+          </div>
+        </div>
+
+        {/* ====================================
+            LARGE 3D OCEAN VIEWPORT
+           ==================================== */}
+
+        <div className="relative h-[75vh] min-h-[540px] max-h-[1000px] rounded-2xl border border-cyan-500/20 bg-[#030e1d] overflow-hidden shadow-2xl shadow-black/40">
+
+          <div className="absolute inset-0">
+            {isUnderwater ? (
+              <UnderwaterBathymetryViewer
+                initialRegionId={
+                  selectedRegion?.id || "mariana-trench"
+                }
+                oceanName={
+                  selectedRegion?.name ||
+                  oceanData?.oceanBasin ||
+                  "Ocean Floor Basin"
+                }
+                onReturnToGlobe={() =>
+                  setIsUnderwater(false)
+                }
+              />
+            ) : (
+              <OceanGlobe
+                selectedCoords={selectedCoords}
+                depth={depth}
+                oceanData={oceanData}
+                onSelectCoords={setSelectedCoords}
+                isLoading={isLoading}
+                activeParameter={activeParam}
+                activeLayer={activeLayer}
+                onSelectLayer={setActiveLayer}
+                showVectorOverlay={showVectorOverlay}
+                onToggleVectorOverlay={() =>
+                  setShowVectorOverlay(!showVectorOverlay)
+                }
+                showStreamlines={showStreamlines}
+                onToggleStreamlines={() =>
+                  setShowStreamlines(!showStreamlines)
+                }
+                pinnedAnomaly={pinnedAnomaly}
+                operationsStation={operationsStation}
+                onSetDepth={setDepth}
+                onContinentClick={handleSelectContinent}
+                selectedRegion={selectedRegion}
+                onClearRegion={() =>
+                  setSelectedRegion(null)
+                }
+                verticalExaggeration={verticalExaggeration}
+                onVerticalExaggerationChange={
+                  setVerticalExaggeration
+                }
+                isUnderwater={isUnderwater}
+                onToggleUnderwater={setIsUnderwater}
+              />
+            )}
+          </div>
+
+          {/* FLOATING VIEWPORT LOCATION INDICATOR */}
+          <div className="absolute bottom-3 left-3 sm:bottom-4 sm:left-4 z-10 pointer-events-none max-w-[70%] rounded-xl border border-cyan-400/15 bg-[#031321]/75 backdrop-blur-xl px-3 py-2 shadow-lg">
+
+            <div className="flex items-center gap-2">
+              <Navigation className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+
+              <span className="font-mono text-[11px] text-cyan-100 truncate">
+                {locationLabel}
+              </span>
+            </div>
+
+            <div className="mt-1 text-[10px] text-slate-400 truncate">
+              {viewportTitle} · {depth} m · Hour {hour}
+            </div>
+          </div>
+
+          {/* ====================================
+              FLOATING CONTROL DRAWER
+             ==================================== */}
+
+          {activeDrawer === "controls" && (
+            <div className="absolute z-30 top-3 bottom-3 left-3 w-[min(350px,calc(100%-24px))] flex flex-col rounded-2xl border border-cyan-400/30 bg-[#031321]/95 backdrop-blur-2xl shadow-2xl overflow-hidden">
+
+              <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/10 shrink-0">
+                <div className="flex items-center gap-2">
+                  <SlidersHorizontal className="w-4 h-4 text-cyan-300" />
+                  <span className="text-sm font-bold text-white">
+                    Ocean Controls
                   </span>
-
-                  <strong>
-                    {depth} m
-                  </strong>
-
                 </div>
 
-                <div className="coordinate">
-
-                  <span>
-                    TIME
-                  </span>
-
-                  <strong>
-                    {String(time).padStart(
-                      2,
-                      "0"
-                    )}
-                    :00
-                  </strong>
-
-                </div>
-
+                <button
+                  type="button"
+                  onClick={() => setActiveDrawer(null)}
+                  aria-label="Close controls"
+                  className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/10 text-slate-300"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
 
-              <div className="location-card">
-
-                <div className="location-title">
-                  DATA SOURCES
-                </div>
-
-                <p>
-                  Temperature:
-                  Open-Meteo Marine
-                </p>
-
-                <p>
-                  Current:
-                  Open-Meteo Marine
-                </p>
-
-                <p>
-                  Salinity:
-                  NOAA AOML /
-                  deterministic fallback
-                </p>
-
-                {oceanData.time && (
-
-                  <p>
-                    Marine timestamp:
-                    {" "}
-                    {oceanData.time}
-                  </p>
-
-                )}
-
-                {error && (
-
-                  <p
-                    style={{
-                      color:
-                        "#ff7878",
-                      marginTop:
-                        "10px",
-                    }}
-                  >
-                    {error}
-                  </p>
-
-                )}
-
+              <div className="flex-1 min-h-0 overflow-y-auto p-2">
+                <ControlPanel
+                  selectedCoords={selectedCoords}
+                  depth={depth}
+                  setDepth={setDepth}
+                  hour={hour}
+                  setHour={setHour}
+                  activeParam={activeParam}
+                  setActiveParam={setActiveParam}
+                  oceanData={oceanData}
+                  isLoading={isLoading}
+                  onSelectPreset={handleSelectPreset}
+                />
               </div>
-
-            </>
-
+            </div>
           )}
 
-        </section>
+          {/* ====================================
+              FLOATING TELEMETRY DRAWER
+             ==================================== */}
+
+          {activeDrawer === "telemetry" && (
+            <div className="absolute z-30 top-3 bottom-3 right-3 w-[min(370px,calc(100%-24px))] flex flex-col rounded-2xl border border-cyan-400/30 bg-[#031321]/95 backdrop-blur-2xl shadow-2xl overflow-hidden">
+
+              <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/10 shrink-0">
+                <div className="flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-cyan-300" />
+                  <span className="text-sm font-bold text-white">
+                    Live Telemetry
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveDrawer(null)}
+                  aria-label="Close telemetry"
+                  className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/10 text-slate-300"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="flex-1 min-h-0 overflow-y-auto p-2">
+                <TelemetryPanel
+                  selectedCoords={selectedCoords}
+                  depth={depth}
+                  oceanData={oceanData}
+                  isLoading={isLoading}
+                  activeParam={activeParam}
+                />
+              </div>
+            </div>
+          )}
+
+        </div>
+
+        {/* ====================================
+            OPTIONAL TIMELINE SECTION
+           ==================================== */}
+
+        {showTimeline && (
+          <section className="rounded-2xl border border-cyan-500/20 bg-[#04172a]/90 p-3 sm:p-4">
+
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Clock3 className="w-4 h-4 text-cyan-300" />
+                <h2 className="text-xs font-bold tracking-wider text-white uppercase">
+                  Ocean Time Explorer
+                </h2>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowTimeline(false)}
+                className="text-slate-400 hover:text-white"
+                aria-label="Close timeline"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <OceanTimeline
+              currentHour={hour}
+              onHourChange={setHour}
+              selectedStorm={selectedStorm}
+              onSelectStorm={handleSelectStorm}
+              timeSeries={oceanData?.timeSeries || []}
+            />
+          </section>
+        )}
+
+        {/* ====================================
+            OPTIONAL SCIENTIFIC ANALYSIS
+           ==================================== */}
+
+        {showAnalysis && (
+          <section className="rounded-2xl border border-cyan-500/20 bg-[#04172a]/90 p-3 sm:p-5">
+
+            <div className="flex items-center justify-between gap-2 mb-4">
+              <div className="flex items-center gap-2">
+                <ChartNoAxesCombined className="w-4 h-4 text-cyan-300" />
+                <div>
+                  <h2 className="text-xs font-bold uppercase tracking-wider text-white">
+                    Ocean Data Analysis
+                  </h2>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Wave dynamics and time-series inspection
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowAnalysis(false)}
+                className="text-slate-400 hover:text-white"
+                aria-label="Close analysis"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {oceanData ? (
+              <WaveTimeSeriesChart
+                timeSeries={oceanData.timeSeries}
+                currentHour={hour}
+                onSelectHour={setHour}
+                oceanName={
+                  selectedRegion?.name ||
+                  oceanData.oceanBasin
+                }
+              />
+            ) : (
+              <div className="py-12 text-center text-slate-400 text-sm">
+                Select an ocean location to inspect data.
+              </div>
+            )}
+          </section>
+        )}
 
       </main>
 
-      {/* =====================================================
-          FOOTER
-      ===================================================== */}
-
-      <footer>
-
-        OCEANVISTA3D
-
-        <span>
-          / LIVE MARINE DATA
-        </span>
-
+      {/* COMPACT FOOTER */}
+      <footer className="px-4 py-3 border-t border-cyan-500/10 bg-[#020b17] text-center text-[11px] text-slate-500">
+        <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
+          <span className="font-bold tracking-widest text-cyan-300">
+            MARIVEX
+          </span>
+          <span>·</span>
+          <span>OceanVista3D</span>
+          <span>·</span>
+          <span>Interactive Ocean Data Visualization</span>
+        </div>
       </footer>
+
+      {/* ====================================
+          EXISTING MODALS — PRESERVED
+         ==================================== */}
+
+      <ContinentOceanModal
+        continent={activeContinent}
+        onClose={() => setActiveContinent(null)}
+        onSelectRegion={handleSelectRegion}
+      />
+
+      <ResearchModal
+        isOpen={isReportModalOpen}
+        onClose={() => setIsReportModalOpen(false)}
+        coords={selectedCoords}
+        depth={depth}
+        hour={hour}
+        oceanData={oceanData}
+      />
+
+      <AboutModal
+        isOpen={isAboutModalOpen}
+        onClose={() => setIsAboutModalOpen(false)}
+      />
+
+      <MarineOperationsModal
+        isOpen={isOperationsModalOpen}
+        onClose={() => setIsOperationsModalOpen(false)}
+        oceanData={oceanData}
+        coords={selectedCoords}
+        onSelectStation={handleSelectOperationsStation}
+      />
+
+      <AnomalyDetectionModal
+        isOpen={isAnomalyModalOpen}
+        onClose={() => setIsAnomalyModalOpen(false)}
+        onPinAnomaly={handleSelectAnomaly}
+      />
+
+      <RegionComparisonModal
+        isOpen={isComparisonModalOpen}
+        onClose={() => setIsComparisonModalOpen(false)}
+        initialRegionA={selectedRegion}
+      />
+
+      <BathymetricTransectModal
+        isOpen={isTransectModalOpen}
+        onClose={() => setIsTransectModalOpen(false)}
+        onFlyToTransect={handleFlyToTransect}
+      />
+
+      <AskMarivexAssistant
+        isOpen={isAssistantOpen}
+        onClose={() => setIsAssistantOpen(false)}
+        coords={selectedCoords}
+        region={selectedRegion}
+        oceanData={oceanData}
+        depth={depth}
+        hour={hour}
+      />
 
     </div>
   );
 }
-
-export default App;
