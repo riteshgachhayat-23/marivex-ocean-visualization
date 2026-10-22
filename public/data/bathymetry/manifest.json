@@ -1,0 +1,170 @@
+{
+  "dataset": "GEBCO_2026 Sub-Ice Global Bathymetric Grid",
+  "version": "2026",
+  "license": "GEBCO IHO/IOC Open Data License",
+  "verticalDatum": "Mean Sea Level (metres)",
+  "gridIntervalArcSec": 15,
+  "processedAt": "2026-10-20T16:51:20.630Z",
+  "tiles": [
+    {
+      "id": "mariana-trench",
+      "name": "Mariana Trench (Challenger Deep)",
+      "file": "tiles/mariana-trench.json",
+      "bounds": {
+        "minLat": 10.75,
+        "maxLat": 11.950000000000003,
+        "minLon": 141.60000000000002,
+        "maxLon": 142.8
+      },
+      "gridWidth": 73,
+      "gridHeight": 73,
+      "minDepth": 1513,
+      "maxDepth": 10898,
+      "landmarksCount": 3
+    },
+    {
+      "id": "atlantic-ridge",
+      "name": "Mid-Atlantic Ridge (Axial Graben)",
+      "file": "tiles/atlantic-ridge.json",
+      "bounds": {
+        "minLat": 25.39999999999999,
+        "maxLat": 26.599999999999994,
+        "minLon": -45.599999999999994,
+        "maxLon": -44.400000000000006
+      },
+      "gridWidth": 73,
+      "gridHeight": 73,
+      "minDepth": 1606,
+      "maxDepth": 4700,
+      "landmarksCount": 3
+    },
+    {
+      "id": "puerto-rico-trench",
+      "name": "Puerto Rico Trench (Milwaukee Deep)",
+      "file": "tiles/puerto-rico-trench.json",
+      "bounds": {
+        "minLat": 19.233333333333334,
+        "maxLat": 20.433333333333337,
+        "minLon": -67.10000000000001,
+        "maxLon": -65.9
+      },
+      "gridWidth": 73,
+      "gridHeight": 73,
+      "minDepth": 5115,
+      "maxDepth": 8497,
+      "landmarksCount": 3
+    },
+    {
+      "id": "arabian-sea",
+      "name": "Arabian Sea (Carlsberg Ridge & Basin)",
+      "file": "tiles/arabian-sea.json",
+      "bounds": {
+        "minLat": 2.9000000000000057,
+        "maxLat": 4.099999999999994,
+        "minLon": 63.400000000000006,
+        "maxLon": 64.6
+      },
+      "gridWidth": 73,
+      "gridHeight": 73,
+      "minDepth": 1198,
+      "maxDepth": 4603,
+      "landmarksCount": 2
+    },
+    {
+      "id": "bay-of-bengal",
+      "name": "Bay of Bengal (Swatch of No Ground Canyon)",
+      "file": "tiles/bay-of-bengal.json",
+      "bounds": {
+        "minLat": 20.599999999999994,
+        "maxLat": 21.799999999999997,
+        "minLon": 88.60000000000002,
+        "maxLon": 89.80000000000001
+      },
+      "gridWidth": 73,
+      "gridHeight": 73,
+      "minDepth": 0,
+      "maxDepth": 1118,
+      "landmarksCount": 2
+    },
+    {
+      "id": "gulf-of-mexico",
+      "name": "Gulf of Mexico (Sigsbee Deep)",
+      "file": "tiles/gulf-of-mexico.json",
+      "bounds": {
+        "minLat": 24.39999999999999,
+        "maxLat": 25.599999999999994,
+        "minLon": -90.6,
+        "maxLon": -89.4
+      },
+      "gridWidth": 73,
+      "gridHeight": 73,
+      "minDepth": 3299,
+      "maxDepth": 4008,
+      "landmarksCount": 1
+    },
+    {
+      "id": "mediterranean-sea",
+      "name": "Mediterranean Sea (Ionian Basin)",
+      "file": "tiles/mediterranean-sea.json",
+      "bounds": {
+        "minLat": 36,
+        "maxLat": 37.2,
+        "minLon": 21,
+        "maxLon": 22.19999999999999
+      },
+      "gridWidth": 73,
+      "gridHeight": 73,
+      "minDepth": 0,
+      "maxDepth": 5119,
+      "landmarksCount": 1
+    },
+    {
+      "id": "sargasso-sea",
+      "name": "Sargasso Sea (North Atlantic Plain)",
+      "file": "tiles/sargasso-sea.json",
+      "bounds": {
+        "minLat": 27.39999999999999,
+        "maxLat": 28.599999999999994,
+        "minLon": -66.60000000000001,
+        "maxLon": -65.4
+      },
+      "gridWidth": 73,
+      "gridHeight": 73,
+      "minDepth": 3938,
+      "maxDepth": 5653,
+      "landmarksCount": 1
+    },
+    {
+      "id": "coral-sea",
+      "name": "Coral Sea (Great Barrier Reef Margin)",
+      "file": "tiles/coral-sea.json",
+      "bounds": {
+        "minLat": -18.599999999999994,
+        "maxLat": -17.400000000000006,
+        "minLon": 147,
+        "maxLon": 148.2
+      },
+      "gridWidth": 73,
+      "gridHeight": 73,
+      "minDepth": 8,
+      "maxDepth": 1635,
+      "landmarksCount": 1
+    },
+    {
+      "id": "philippine-sea",
+      "name": "Philippine Sea (Philippine Trench)",
+      "file": "tiles/philippine-sea.json",
+      "bounds": {
+        "minLat": 10,
+        "maxLat": 11.200000000000003,
+        "minLon": 126,
+        "maxLon": 127.19999999999999
+      },
+      "gridWidth": 73,
+      "gridHeight": 73,
+      "minDepth": 0,
+      "maxDepth": 9820,
+      "landmarksCount": 1
+    }
+  ]
+}

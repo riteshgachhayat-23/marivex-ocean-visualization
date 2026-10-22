@@ -4,10 +4,12 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --port=3000 --host=0.0.0.0",
+    "dev": "tsx server.ts",
     "build": "vite build",
     "preview": "vite preview",
-    "clean": "rm -rf dist server.js",
+    "start": "node server.ts",
+    "process:gebco": "node scripts/process_gebco_2026.mjs",
+    "clean": "rm -rf dist",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
@@ -18,9 +20,11 @@
     "@vitejs/plugin-react": "^6.1.1",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
+    "jsfive": "^0.4.2",
     "jspdf": "^4.2.1",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
+    "netcdfjs": "^4.0.0",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "three": "^0.186.1",
@@ -35,7 +39,7 @@
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.28.2",
     "tailwindcss": "^4.3.3",
-    "tsx": "^4.21.0",
+    "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   }
 }
