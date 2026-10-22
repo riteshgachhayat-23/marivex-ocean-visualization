@@ -20,20 +20,33 @@ import {
   Sparkles
 } from 'lucide-react';
 import { UnderwaterBathymetry, BenthicProbeResult } from './UnderwaterBathymetry';
-import { generateBathymetryGrid, BathymetricLandmark } from '../utils/bathymetryGridBuilder';
+import { 
+  generateBathymetryGrid, 
+  getRealBathymetryDataset, 
+  fetchRealBathymetryGrid, 
+  BathymetricLandmark,
+  BathymetryGridDataset
+} from '../utils/bathymetryGridBuilder';
 
 interface UnderwaterBathymetryViewerProps {
   initialRegionId?: string;
+  initialCoords?: { latitude: number; longitude: number } | null;
   onReturnToGlobe?: () => void;
   oceanName?: string;
+  selectedCoords?: { latitude: number; longitude: number } | null;
 }
 
 const REGION_PRESETS = [
-  { id: 'mariana-trench', name: 'Mariana Trench (Challenger Deep)', depthRange: '10,994m', tag: 'Hadal Subduction' },
-  { id: 'atlantic-ridge', name: 'Mid-Atlantic Ridge (Axial Graben)', depthRange: '3,670m', tag: 'Spreading Ridge' },
-  { id: 'puerto-rico-trench', name: 'Puerto Rico Trench (Milwaukee Deep)', depthRange: '8,376m', tag: 'Atlantic Chasm' },
-  { id: 'arabian-sea', name: 'Arabian Sea (Carlsberg Ridge & Shelf)', depthRange: '4,652m', tag: 'Rift & Margin' },
-  { id: 'bay-of-bengal', name: 'Bay of Bengal (Swatch of No Ground)', depthRange: '4,694m', tag: 'Canyon & Ridge' }
+  { id: 'mariana-trench', name: 'Mariana Trench (Challenger Deep)', depthRange: '10,898m', tag: 'Hadal Subduction' },
+  { id: 'atlantic-ridge', name: 'Mid-Atlantic Ridge (Axial Graben)', depthRange: '4,700m', tag: 'Spreading Ridge' },
+  { id: 'puerto-rico-trench', name: 'Puerto Rico Trench (Milwaukee Deep)', depthRange: '8,497m', tag: 'Atlantic Chasm' },
+  { id: 'arabian-sea', name: 'Arabian Sea (Carlsberg Ridge & Basin)', depthRange: '4,603m', tag: 'Rift & Basin' },
+  { id: 'bay-of-bengal', name: 'Bay of Bengal (Swatch of No Ground)', depthRange: '1,118m', tag: 'Canyon & Shelf' },
+  { id: 'gulf-of-mexico', name: 'Gulf of Mexico (Sigsbee Deep)', depthRange: '4,008m', tag: 'Abyssal Basin' },
+  { id: 'mediterranean-sea', name: 'Mediterranean Sea (Ionian Basin)', depthRange: '5,119m', tag: 'Calypso Deep' },
+  { id: 'sargasso-sea', name: 'Sargasso Sea (North Atlantic Plain)', depthRange: '5,653m', tag: 'Abyssal Floor' },
+  { id: 'coral-sea', name: 'Coral Sea (Great Barrier Reef Margin)', depthRange: '1,635m', tag: 'Reef Margin' },
+  { id: 'philippine-sea', name: 'Philippine Sea (Philippine Trench)', depthRange: '9,820m', tag: 'Emden Deep' }
 ];
 
 /**
@@ -241,11 +254,25 @@ const UnderwaterAtmosphereRig: React.FC<{ showSurface?: boolean }> = ({ showSurf
 };
 
 export const UnderwaterBathymetryViewer: React.FC<UnderwaterBathymetryViewerProps> = ({
-  initialRegionId = 'mariana-trench',
+  initialRegionId,
+  initialCoords,
   onReturnToGlobe,
-  oceanName = 'Global Oceanic Basin'
+  oceanName = 'Global Oceanic Basin',
+  selectedCoords
 }) => {
-  const [selectedRegionId, setSelectedRegionId] = useState<string>(initialRegionId);
+  const effectiveCoords = selectedCoords || initialCoords;
+  const isInitialPreset = Boolean(initialRegionId && REGION_PRESETS.some((p) => p.id === initialRegionId));
+
+  const [selectedRegionId, setSelectedRegionId] = useState<string>(() => {
+    if (isInitialPreset && initialRegionId) {
+      return initialRegionId;
+    }
+    if (effectiveCoords) {
+      return 'custom-coords';
+    }
+    return 'mariana-trench';
+  });
+
   const [verticalExaggeration, setVerticalExaggeration] = useState<number>(2.8);
   const [showContours, setShowContours] = useState<boolean>(true);
   const [showLandmarks, setShowLandmarks] = useState<boolean>(true);
@@ -255,12 +282,63 @@ export const UnderwaterBathymetryViewer: React.FC<UnderwaterBathymetryViewerProp
   const [showLegend, setShowLegend] = useState<boolean>(true);
   const controlsRef = useRef<ThreeOrbitControls | null>(null);
 
-  // Generate high-resolution grid dataset for selected region (128x128 grid: 16,384 vertices)
-  const gridDataset = useMemo(() => {
-    return generateBathymetryGrid(selectedRegionId, undefined, 128, 128);
-  }, [selectedRegionId]);
+  // Sync selectedRegionId if coordinates change externally and no preset is locked
+  useEffect(() => {
+    if (effectiveCoords && !isInitialPreset) {
+      setSelectedRegionId('custom-coords');
+    }
+  }, [effectiveCoords?.latitude, effectiveCoords?.longitude, isInitialPreset]);
 
-  const activeRegionObj = REGION_PRESETS.find((r) => r.id === selectedRegionId) || REGION_PRESETS[0];
+  // Real GEBCO & NOAA ETOPO grid dataset for selected region
+  const [gridDataset, setGridDataset] = useState<BathymetryGridDataset>(() => {
+    const isCustom = selectedRegionId === 'custom-coords' && !!effectiveCoords;
+    if (isCustom) {
+      // Temporary placeholder while fetching coordinate grid
+      return getRealBathymetryDataset('mariana-trench');
+    }
+    return getRealBathymetryDataset(selectedRegionId);
+  });
+  const [isLoadingGrid, setIsLoadingGrid] = useState<boolean>(false);
+
+  useEffect(() => {
+    let active = true;
+    setIsLoadingGrid(true);
+
+    const isCustom = selectedRegionId === 'custom-coords' && !!effectiveCoords;
+    const fetchCoords = isCustom ? effectiveCoords : undefined;
+    const fetchRegion = isCustom ? undefined : selectedRegionId;
+
+    fetchRealBathymetryGrid(fetchRegion, fetchCoords)
+      .then((data) => {
+        if (active && data) {
+          setGridDataset(data);
+        }
+      })
+      .catch((err) => {
+        console.warn('Real bathymetry fetch error:', err);
+        if (active) {
+          setGridDataset(getRealBathymetryDataset(fetchRegion || 'mariana-trench'));
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setIsLoadingGrid(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [selectedRegionId, effectiveCoords?.latitude, effectiveCoords?.longitude]);
+
+  const activeRegionObj = REGION_PRESETS.find((r) => r.id === selectedRegionId) || {
+    id: selectedRegionId,
+    name: selectedRegionId === 'custom-coords' && effectiveCoords
+      ? `Sector (${Math.abs(effectiveCoords.latitude).toFixed(2)}°${effectiveCoords.latitude >= 0 ? 'N' : 'S'}, ${Math.abs(effectiveCoords.longitude).toFixed(2)}°${effectiveCoords.longitude >= 0 ? 'E' : 'W'})`
+      : (gridDataset.name || oceanName),
+    depthRange: `${gridDataset.maxDepth.toLocaleString()}m`,
+    tag: selectedRegionId === 'custom-coords' ? 'Real Sounding' : 'Active Preset'
+  };
 
   const handleZoomIn = () => {
     if (controlsRef.current) {
@@ -356,12 +434,38 @@ export const UnderwaterBathymetryViewer: React.FC<UnderwaterBathymetryViewerProp
             <span className="flex h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
             <span className="font-bold text-sky-300">MARIVEX 3D Bathymetry Twin</span>
             <span className="text-slate-600">·</span>
-            <span className="text-slate-400 font-mono text-[11px]">GEBCO 2024 Calibrated Grid (128×128)</span>
+            <span className="text-slate-400 font-mono text-[11px]">{gridDataset.source} ({gridDataset.gridWidth}×{gridDataset.gridHeight} Real Soundings)</span>
+            {isLoadingGrid && (
+              <span className="text-[10px] text-cyan-400 font-mono animate-pulse">Syncing...</span>
+            )}
           </div>
         </div>
 
         {/* Region Selector Segmented Control */}
-        <div className="hidden lg:flex items-center gap-1 p-1 rounded-xl bg-slate-900/90 backdrop-blur-md border border-slate-700/70 pointer-events-auto shadow-xl">
+        <div className="hidden lg:flex items-center gap-1.5 p-1 rounded-xl bg-slate-900/90 backdrop-blur-md border border-slate-700/70 pointer-events-auto shadow-xl max-w-[58vw] overflow-x-auto scrollbar-none">
+          {effectiveCoords && (
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedRegionId('custom-coords');
+                setProbedData(null);
+              }}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-1.5 ${
+                selectedRegionId === 'custom-coords'
+                  ? 'bg-emerald-600 text-white shadow-md font-semibold'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+              }`}
+            >
+              <MapPin className="w-3.5 h-3.5 text-emerald-300" />
+              <span>Target Sector ({Math.abs(effectiveCoords.latitude).toFixed(2)}°{effectiveCoords.latitude >= 0 ? 'N' : 'S'}, {Math.abs(effectiveCoords.longitude).toFixed(2)}°{effectiveCoords.longitude >= 0 ? 'E' : 'W'})</span>
+              <span className={`text-[9px] px-1 py-0.5 rounded font-mono ${
+                selectedRegionId === 'custom-coords' ? 'bg-emerald-700 text-emerald-100' : 'bg-slate-800 text-slate-400'
+              }`}>
+                {gridDataset.maxDepth > 0 ? `${gridDataset.maxDepth.toLocaleString()}m` : 'Survey'}
+              </span>
+            </button>
+          )}
+
           {REGION_PRESETS.map((preset) => (
             <button
               key={preset.id}
@@ -370,14 +474,14 @@ export const UnderwaterBathymetryViewer: React.FC<UnderwaterBathymetryViewerProp
                 setSelectedRegionId(preset.id);
                 setProbedData(null);
               }}
-              className={`px-3 py-1 text-xs font-medium rounded-lg transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-1.5 ${
                 selectedRegionId === preset.id
                   ? 'bg-cyan-600 text-white shadow-md font-semibold'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
               }`}
             >
-              <span>{preset.name.split(' ')[0]}</span>
-              <span className={`text-[9px] px-1 py-0.2 rounded font-mono ${
+              <span>{preset.name.replace(/ \(.*/, '')}</span>
+              <span className={`text-[9px] px-1 py-0.5 rounded font-mono ${
                 selectedRegionId === preset.id ? 'bg-cyan-700 text-cyan-100' : 'bg-slate-800 text-slate-400'
               }`}>
                 {preset.depthRange}
@@ -400,6 +504,11 @@ export const UnderwaterBathymetryViewer: React.FC<UnderwaterBathymetryViewerProp
             }}
             className="w-full bg-slate-800 text-slate-200 text-xs rounded-lg p-1.5 border border-slate-700"
           >
+            {effectiveCoords && (
+              <option value="custom-coords">
+                📍 Target Sector ({Math.abs(effectiveCoords.latitude).toFixed(2)}°{effectiveCoords.latitude >= 0 ? 'N' : 'S'}, {Math.abs(effectiveCoords.longitude).toFixed(2)}°{effectiveCoords.longitude >= 0 ? 'E' : 'W'})
+              </option>
+            )}
             {REGION_PRESETS.map((preset) => (
               <option key={preset.id} value={preset.id}>
                 {preset.name} ({preset.depthRange})
@@ -580,18 +689,44 @@ export const UnderwaterBathymetryViewer: React.FC<UnderwaterBathymetryViewerProp
             </button>
           </div>
 
-          {/* Depth Callout */}
+          {/* Depth / Elevation Callout */}
           <div className="p-3 rounded-lg bg-slate-950/80 border border-cyan-500/20 flex items-center justify-between">
-            <div>
-              <div className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Seafloor Depth</div>
-              <div className="text-2xl font-black font-mono text-cyan-300 tabular-nums">
-                {probedData.depth.toLocaleString()} <span className="text-sm font-normal text-slate-400">m</span>
+            {probedData.isLand ? (
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-amber-400 font-semibold flex items-center gap-1">
+                  <span>Terrestrial Elevation</span>
+                  <span className="text-[8px] px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 font-bold uppercase">Land</span>
+                </div>
+                <div className="text-2xl font-black font-mono text-amber-300 tabular-nums">
+                  +{probedData.elevation.toLocaleString()} <span className="text-sm font-normal text-slate-400">m</span>
+                </div>
+                <div className="text-[10px] text-slate-400 mt-0.5">
+                  Underwater Depth: <span className="text-slate-300 font-mono font-bold">0 m</span>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Seafloor Depth</div>
+                <div className="text-2xl font-black font-mono text-cyan-300 tabular-nums">
+                  {probedData.depth.toLocaleString()} <span className="text-sm font-normal text-slate-400">m</span>
+                </div>
+                <div className="text-[10px] text-slate-400 mt-0.5">
+                  Raw Elevation: <span className="text-cyan-400 font-mono font-semibold">{probedData.elevation.toLocaleString()} m</span>
+                </div>
+              </div>
+            )}
             <div className="text-right">
-              <div className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Bathymetric Relief</div>
-              <div className="text-sm font-mono text-slate-300 tabular-nums">
-                {probedData.elevation.toLocaleString()} m
+              <div className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Sounding Status</div>
+              <div className="mt-1">
+                {probedData.isAuthoritative ? (
+                  <span className="text-[10px] text-emerald-300 bg-emerald-950/80 border border-emerald-500/40 px-1.5 py-0.5 rounded font-mono">
+                    Direct Sample
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-amber-300 bg-amber-950/80 border border-amber-500/40 px-1.5 py-0.5 rounded font-mono">
+                    Modeled
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -611,13 +746,13 @@ export const UnderwaterBathymetryViewer: React.FC<UnderwaterBathymetryViewerProp
               </div>
             </div>
             <div className="p-2 rounded-lg bg-slate-800/60 border border-slate-750">
-              <div className="text-[10px] text-slate-400 uppercase">Benthic Temp</div>
+              <div className="text-[10px] text-slate-400 uppercase">Est. Benthic Temp</div>
               <div className="font-mono font-bold text-slate-200 tabular-nums">
                 {probedData.benthicTemperature.toFixed(1)} °C
               </div>
             </div>
             <div className="p-2 rounded-lg bg-slate-800/60 border border-slate-750">
-              <div className="text-[10px] text-slate-400 uppercase">Hydrostatic Pressure</div>
+              <div className="text-[10px] text-slate-400 uppercase">Est. Hydrostatic Pressure</div>
               <div className="font-mono font-bold text-slate-200 tabular-nums">
                 {probedData.benthicPressure.toLocaleString()} dbar
               </div>
@@ -631,22 +766,24 @@ export const UnderwaterBathymetryViewer: React.FC<UnderwaterBathymetryViewerProp
               {probedData.morphologyLabel}
             </div>
             <div className="text-slate-400 text-[11px] pt-0.5">
-              <span className="text-slate-500">Sediment: </span>{probedData.sedimentType}
+              <span className="text-slate-500">Sediment substrate: </span>{probedData.sedimentType}
             </div>
           </div>
 
           {/* Scientific Attribution */}
-          <div className="pt-2 border-t border-slate-800 text-[10px] text-slate-400 space-y-0.5">
+          <div className="pt-2 border-t border-slate-800 text-[10px] text-slate-400 space-y-1">
             <div className="flex justify-between">
-              <span>Calibration Grid:</span>
-              <span className="text-slate-300 font-medium">{probedData.datasetName}</span>
+              <span>Elevation Source:</span>
+              <span className="text-slate-300 font-medium truncate max-w-[170px]" title={probedData.datasetName}>
+                {probedData.datasetName}
+              </span>
             </div>
             <div className="flex justify-between">
               <span>Grid Resolution:</span>
               <span className="text-slate-300 font-mono">{probedData.resolution}</span>
             </div>
-            <div className="text-slate-500 pt-1 text-[9px] leading-tight">
-              Multibeam acoustic bathymetry and radar altimetry. Benchmark standards GEBCO / NOAA / IOC.
+            <div className="text-slate-500 pt-1 text-[9px] leading-tight border-t border-slate-800/60">
+              * Elevation & depth sampled directly from {probedData.datasetName}. Temperature, pressure, and sediment are modeled estimates.
             </div>
           </div>
         </div>

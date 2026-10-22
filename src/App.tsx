@@ -590,13 +590,15 @@ export default function App() {
           <div className="absolute inset-0">
             {isUnderwater ? (
               <UnderwaterBathymetryViewer
-                initialRegionId={
-                  selectedRegion?.id || "mariana-trench"
-                }
+                initialRegionId={selectedRegion?.id}
+                initialCoords={selectedCoords}
+                selectedCoords={selectedCoords}
                 oceanName={
                   selectedRegion?.name ||
                   oceanData?.oceanBasin ||
-                  "Ocean Floor Basin"
+                  (selectedCoords
+                    ? `Sector (${Math.abs(selectedCoords.latitude).toFixed(2)}°${selectedCoords.latitude >= 0 ? 'N' : 'S'}, ${Math.abs(selectedCoords.longitude).toFixed(2)}°${selectedCoords.longitude >= 0 ? 'E' : 'W'})`
+                    : "Ocean Floor Basin")
                 }
                 onReturnToGlobe={() =>
                   setIsUnderwater(false)

@@ -8,6 +8,9 @@ export interface BenthicProbeResult {
   coords: { latitude: number; longitude: number };
   depth: number;
   elevation: number;
+  isLand?: boolean;
+  isAuthoritative?: boolean;
+  isModeledFallback?: boolean;
   oceanName: string;
   datasetName: string;
   resolution: string;
@@ -485,24 +488,55 @@ export const UnderwaterBathymetry: React.FC<UnderwaterBathymetryProps> = ({
     // Sample accurate depth from grid and scientific seabed info
     const gx = Math.min(gridWidth - 1, Math.max(0, Math.round(u * (gridWidth - 1))));
     const gy = Math.min(gridHeight - 1, Math.max(0, Math.round(v * (gridHeight - 1))));
-    const gridDepth = elevations[gy * gridWidth + gx];
+    const sampleIdx = gy * gridWidth + gx;
+    const gridDepth = elevations[sampleIdx];
+    const gridRawElev = gridDataset.rawElevations ? gridDataset.rawElevations[sampleIdx] : undefined;
 
+    const hasValidGridSample = typeof gridDepth === 'number' && !isNaN(gridDepth);
     const seabedInfo = getAccurateSeabedInfo(latitude, longitude);
-    const depth = Math.round(gridDepth || seabedInfo.depth);
+
+    let depth = 0;
+    let elevation = 0;
+    let isLand = false;
+
+    if (hasValidGridSample) {
+      if (gridRawElev !== undefined && !isNaN(gridRawElev)) {
+        elevation = Math.round(gridRawElev);
+        // Signed convention: positive elevation is land above sea level; underwater depth is max(0, -elevation)
+        isLand = elevation > 0;
+        depth = isLand ? 0 : Math.round(-elevation);
+      } else {
+        depth = Math.round(gridDepth);
+        elevation = -depth;
+        isLand = false;
+      }
+    } else {
+      // Clearly identified fallback result
+      depth = Math.round(seabedInfo.depth);
+      elevation = -depth;
+      isLand = false;
+    }
+
+    const isDirectSounding = hasValidGridSample && (gridDataset.isAuthoritative ?? true);
 
     const probeResult: BenthicProbeResult = {
       coords: { latitude, longitude },
       depth,
-      elevation: -depth,
+      elevation,
+      isLand,
+      isAuthoritative: isDirectSounding,
+      isModeledFallback: !hasValidGridSample,
       oceanName,
-      datasetName: 'GEBCO 2024 Global Bathymetric Grid',
-      resolution: '15 arc-second gridded (~450m cell size)',
-      attribution: 'GEBCO / NOAA NCEI / IHO / IOC UNESCO',
-      measurementMethod: 'Multibeam echo-sounder acoustic bathymetry & satellite radar altimetry',
-      morphologyLabel: seabedInfo.morphologyLabel,
-      sedimentType: seabedInfo.sedimentType,
-      benthicTemperature: seabedInfo.benthicTemperature,
-      benthicPressure: seabedInfo.benthicPressure,
+      datasetName: hasValidGridSample ? (gridDataset.source || 'GEBCO Bathymetric Grid') : 'Ocean Model Fallback',
+      resolution: hasValidGridSample ? `${gridDataset.resolutionArcSec || 60} arc-second grid (${gridWidth}×${gridHeight})` : 'Modeled Estimation',
+      attribution: hasValidGridSample ? 'GEBCO / NOAA NCEI / IHO / IOC UNESCO' : 'Statistical Ocean Model',
+      measurementMethod: hasValidGridSample 
+        ? `${gridDataset.source} (${isLand ? 'Terrestrial Topography' : 'Direct Sounding Elevation'})` 
+        : 'Modeled estimate (Grid sample unavailable)',
+      morphologyLabel: isLand ? 'Terrestrial Landmass / Island' : seabedInfo.morphologyLabel,
+      sedimentType: isLand ? 'Continental Bedrock / Soil' : seabedInfo.sedimentType,
+      benthicTemperature: isLand ? 20.0 : seabedInfo.benthicTemperature,
+      benthicPressure: isLand ? 1.013 : Number((1.013 + depth * 0.1008).toFixed(1)),
       point3D: [e.point.x, e.point.y, e.point.z]
     };
 
@@ -588,14 +622,14 @@ export const UnderwaterBathymetry: React.FC<UnderwaterBathymetryProps> = ({
                   depth: landmark.depthMeters,
                   elevation: -landmark.depthMeters,
                   oceanName,
-                  datasetName: 'GEBCO 2024 Global Bathymetric Grid',
-                  resolution: '15 arc-second gridded (~450m)',
+                  datasetName: gridDataset.source || 'GEBCO / NOAA NCEI 1-Arc-Minute Bathymetric Grid',
+                  resolution: `${gridDataset.resolutionArcSec || 60} arc-second grid`,
                   attribution: 'GEBCO / NOAA NCEI / IHO / IOC UNESCO',
-                  measurementMethod: 'Multibeam echo-sounder acoustic soundings',
+                  measurementMethod: 'Real GEBCO & NOAA ETOPO Bathymetric Soundings',
                   morphologyLabel: landmark.description,
                   sedimentType: seabed.sedimentType,
                   benthicTemperature: seabed.benthicTemperature,
-                  benthicPressure: seabed.benthicPressure,
+                  benthicPressure: Number((1.013 + landmark.depthMeters * 0.1008).toFixed(1)),
                   point3D: position
                 });
               }}
