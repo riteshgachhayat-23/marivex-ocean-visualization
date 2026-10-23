@@ -19,11 +19,13 @@ import {
   Mountain,
   Sparkles
 } from 'lucide-react';
-import { UnderwaterBathymetry, BenthicProbeResult } from './UnderwaterBathymetry';
+import { UnderwaterBathymetry, BenthicProbeResult, BathymetryTerrainMode } from './UnderwaterBathymetry';
 import { 
   generateBathymetryGrid, 
   getRealBathymetryDataset, 
   fetchRealBathymetryGrid, 
+  findPresetCoveringCoordinates,
+  formatCoordinateString,
   BathymetricLandmark,
   BathymetryGridDataset
 } from '../utils/bathymetryGridBuilder';
@@ -34,6 +36,56 @@ interface UnderwaterBathymetryViewerProps {
   onReturnToGlobe?: () => void;
   oceanName?: string;
   selectedCoords?: { latitude: number; longitude: number } | null;
+}
+
+function createInitialCoordinatePlaceholder(
+  latitude: number,
+  longitude: number
+): BathymetryGridDataset {
+  const coveringPreset = findPresetCoveringCoordinates(latitude, longitude);
+  if (coveringPreset) {
+    return coveringPreset;
+  }
+
+  const gridSize = 25;
+  const total = gridSize * gridSize;
+  const elevations = new Float32Array(total);
+  const rawElevations = new Float32Array(total);
+  elevations.fill(3200);
+  rawElevations.fill(-3200);
+
+  return {
+    id: `loading-${latitude.toFixed(3)}-${longitude.toFixed(3)}`,
+    name: `Target Sector (${formatCoordinateString(latitude, longitude)})`,
+    source: 'Synchronizing Bathymetric Grid…',
+    resolutionArcSec: 60,
+    bounds: {
+      minLat: Math.max(-90, latitude - 0.6),
+      maxLat: Math.min(90, latitude + 0.6),
+      minLon: longitude - 0.6,
+      maxLon: longitude + 0.6
+    },
+    gridWidth: gridSize,
+    gridHeight: gridSize,
+    elevations,
+    rawElevations,
+    minDepth: 3000,
+    maxDepth: 3400,
+    minElevation: -3400,
+    maxElevation: -3000,
+    centerElevation: -3200,
+    centerDepth: 3200,
+    isLand: false,
+    isAuthoritative: false,
+    isModeledFallback: true,
+    provenance: 'modelled',
+    requestedCoordinates: {
+      latitude,
+      longitude,
+      spanDegrees: 1.2
+    },
+    landmarks: []
+  };
 }
 
 const REGION_PRESETS = [
@@ -274,6 +326,7 @@ export const UnderwaterBathymetryViewer: React.FC<UnderwaterBathymetryViewerProp
   });
 
   const [verticalExaggeration, setVerticalExaggeration] = useState<number>(2.8);
+  const [terrainMode, setTerrainMode] = useState<BathymetryTerrainMode>('signed_topography');
   const [showContours, setShowContours] = useState<boolean>(true);
   const [showLandmarks, setShowLandmarks] = useState<boolean>(true);
   const [showWireframe, setShowWireframe] = useState<boolean>(false);
@@ -289,12 +342,11 @@ export const UnderwaterBathymetryViewer: React.FC<UnderwaterBathymetryViewerProp
     }
   }, [effectiveCoords?.latitude, effectiveCoords?.longitude, isInitialPreset]);
 
-  // Real GEBCO & NOAA ETOPO grid dataset for selected region
+  // Real GEBCO & NOAA ETOPO grid dataset for selected region or custom coordinates
   const [gridDataset, setGridDataset] = useState<BathymetryGridDataset>(() => {
     const isCustom = selectedRegionId === 'custom-coords' && !!effectiveCoords;
-    if (isCustom) {
-      // Temporary placeholder while fetching coordinate grid
-      return getRealBathymetryDataset('mariana-trench');
+    if (isCustom && effectiveCoords) {
+      return createInitialCoordinatePlaceholder(effectiveCoords.latitude, effectiveCoords.longitude);
     }
     return getRealBathymetryDataset(selectedRegionId);
   });
@@ -302,22 +354,43 @@ export const UnderwaterBathymetryViewer: React.FC<UnderwaterBathymetryViewerProp
 
   useEffect(() => {
     let active = true;
+    const controller = new AbortController();
     setIsLoadingGrid(true);
 
     const isCustom = selectedRegionId === 'custom-coords' && !!effectiveCoords;
-    const fetchCoords = isCustom ? effectiveCoords : undefined;
+    const fetchCoords = isCustom && effectiveCoords ? effectiveCoords : undefined;
     const fetchRegion = isCustom ? undefined : selectedRegionId;
 
-    fetchRealBathymetryGrid(fetchRegion, fetchCoords)
+    if (isCustom && effectiveCoords) {
+      setProbedData(null);
+    }
+
+    fetchRealBathymetryGrid(fetchRegion, fetchCoords, {
+      signal: controller.signal,
+      onPreviewDataset: (preview) => {
+        if (active) {
+          setGridDataset(preview);
+        }
+      }
+    })
       .then((data) => {
         if (active && data) {
           setGridDataset(data);
         }
       })
-      .catch((err) => {
-        console.warn('Real bathymetry fetch error:', err);
+      .catch((err: any) => {
+        if (err?.name === 'AbortError') return;
+        console.warn('Bathymetry fetch error:', err);
         if (active) {
-          setGridDataset(getRealBathymetryDataset(fetchRegion || 'mariana-trench'));
+          if (fetchCoords) {
+            setGridDataset(createInitialCoordinatePlaceholder(fetchCoords.latitude, fetchCoords.longitude));
+          } else if (fetchRegion) {
+            try {
+              setGridDataset(getRealBathymetryDataset(fetchRegion));
+            } catch {
+              // Preserve current dataset if region lookup fails
+            }
+          }
         }
       })
       .finally(() => {
@@ -328,16 +401,19 @@ export const UnderwaterBathymetryViewer: React.FC<UnderwaterBathymetryViewerProp
 
     return () => {
       active = false;
+      controller.abort();
     };
   }, [selectedRegionId, effectiveCoords?.latitude, effectiveCoords?.longitude]);
 
   const activeRegionObj = REGION_PRESETS.find((r) => r.id === selectedRegionId) || {
     id: selectedRegionId,
     name: selectedRegionId === 'custom-coords' && effectiveCoords
-      ? `Sector (${Math.abs(effectiveCoords.latitude).toFixed(2)}°${effectiveCoords.latitude >= 0 ? 'N' : 'S'}, ${Math.abs(effectiveCoords.longitude).toFixed(2)}°${effectiveCoords.longitude >= 0 ? 'E' : 'W'})`
+      ? `Sector (${formatCoordinateString(effectiveCoords.latitude, effectiveCoords.longitude)})`
       : (gridDataset.name || oceanName),
     depthRange: `${gridDataset.maxDepth.toLocaleString()}m`,
-    tag: selectedRegionId === 'custom-coords' ? 'Real Sounding' : 'Active Preset'
+    tag: selectedRegionId === 'custom-coords'
+      ? (gridDataset.isModeledFallback ? 'Modelled Estimate' : 'Authoritative Sounding')
+      : 'Active Preset'
   };
 
   const handleZoomIn = () => {
@@ -406,6 +482,7 @@ export const UnderwaterBathymetryViewer: React.FC<UnderwaterBathymetryViewerProp
           <UnderwaterBathymetry
             gridDataset={gridDataset}
             verticalExaggeration={verticalExaggeration}
+            terrainMode={terrainMode}
             showContours={showContours}
             showLandmarks={showLandmarks}
             showWireframe={showWireframe}
@@ -596,6 +673,24 @@ export const UnderwaterBathymetryViewer: React.FC<UnderwaterBathymetryViewerProp
                 type="checkbox"
                 checked={showWaterCeiling}
                 onChange={(e) => setShowWaterCeiling(e.target.checked)}
+                className="rounded accent-cyan-500 cursor-pointer"
+              />
+            </label>
+
+            <label
+              className="flex items-center justify-between cursor-pointer text-slate-300 hover:text-white"
+              title="Toggle between Complete Signed Elevation (Land + Ocean) and Underwater Depth-Only surface"
+            >
+              <span className="flex items-center gap-1.5">
+                <Mountain className="w-3 h-3 text-amber-400" />
+                Signed Land + Ocean Relief
+              </span>
+              <input
+                type="checkbox"
+                checked={terrainMode === 'signed_topography'}
+                onChange={(e) =>
+                  setTerrainMode(e.target.checked ? 'signed_topography' : 'underwater_only')
+                }
                 className="rounded accent-cyan-500 cursor-pointer"
               />
             </label>

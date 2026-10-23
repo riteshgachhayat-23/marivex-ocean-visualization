@@ -1,15 +1,22 @@
 {
-  "dataset": "GEBCO_2026 Sub-Ice Global Bathymetric Grid",
-  "version": "2026",
+  "dataset": "GEBCO / NOAA NCEI Regional Bathymetric Preset Extracts (1-Arc-Minute)",
+  "version": "2026-regional-presets",
   "license": "GEBCO IHO/IOC Open Data License",
   "verticalDatum": "Mean Sea Level (metres)",
-  "gridIntervalArcSec": 15,
+  "gridIntervalArcSec": 60,
+  "coverage": "regional_presets",
+  "totalTiles": 10,
   "processedAt": "2026-10-20T16:51:20.630Z",
   "tiles": [
     {
       "id": "mariana-trench",
       "name": "Mariana Trench (Challenger Deep)",
       "file": "tiles/mariana-trench.json",
+      "format": "json",
+      "level": 3,
+      "stride": 4,
+      "resolutionArcSec": 60,
+      "provenance": "preset_regional",
       "bounds": {
         "minLat": 10.75,
         "maxLat": 11.950000000000003,
@@ -20,12 +27,19 @@
       "gridHeight": 73,
       "minDepth": 1513,
       "maxDepth": 10898,
+      "minElevation": -10898,
+      "maxElevation": -1513,
       "landmarksCount": 3
     },
     {
       "id": "atlantic-ridge",
       "name": "Mid-Atlantic Ridge (Axial Graben)",
       "file": "tiles/atlantic-ridge.json",
+      "format": "json",
+      "level": 3,
+      "stride": 4,
+      "resolutionArcSec": 60,
+      "provenance": "preset_regional",
       "bounds": {
         "minLat": 25.39999999999999,
         "maxLat": 26.599999999999994,
@@ -36,12 +50,19 @@
       "gridHeight": 73,
       "minDepth": 1606,
       "maxDepth": 4700,
+      "minElevation": -4700,
+      "maxElevation": -1606,
       "landmarksCount": 3
     },
     {
       "id": "puerto-rico-trench",
       "name": "Puerto Rico Trench (Milwaukee Deep)",
       "file": "tiles/puerto-rico-trench.json",
+      "format": "json",
+      "level": 3,
+      "stride": 4,
+      "resolutionArcSec": 60,
+      "provenance": "preset_regional",
       "bounds": {
         "minLat": 19.233333333333334,
         "maxLat": 20.433333333333337,
@@ -52,12 +73,19 @@
       "gridHeight": 73,
       "minDepth": 5115,
       "maxDepth": 8497,
+      "minElevation": -8497,
+      "maxElevation": -5115,
       "landmarksCount": 3
     },
     {
       "id": "arabian-sea",
       "name": "Arabian Sea (Carlsberg Ridge & Basin)",
       "file": "tiles/arabian-sea.json",
+      "format": "json",
+      "level": 3,
+      "stride": 4,
+      "resolutionArcSec": 60,
+      "provenance": "preset_regional",
       "bounds": {
         "minLat": 2.9000000000000057,
         "maxLat": 4.099999999999994,
@@ -68,12 +96,19 @@
       "gridHeight": 73,
       "minDepth": 1198,
       "maxDepth": 4603,
+      "minElevation": -4603,
+      "maxElevation": -1198,
       "landmarksCount": 2
     },
     {
       "id": "bay-of-bengal",
       "name": "Bay of Bengal (Swatch of No Ground Canyon)",
       "file": "tiles/bay-of-bengal.json",
+      "format": "json",
+      "level": 3,
+      "stride": 4,
+      "resolutionArcSec": 60,
+      "provenance": "preset_regional",
       "bounds": {
         "minLat": 20.599999999999994,
         "maxLat": 21.799999999999997,
@@ -84,12 +119,19 @@
       "gridHeight": 73,
       "minDepth": 0,
       "maxDepth": 1118,
+      "minElevation": -1118,
+      "maxElevation": 0,
       "landmarksCount": 2
     },
     {
       "id": "gulf-of-mexico",
       "name": "Gulf of Mexico (Sigsbee Deep)",
       "file": "tiles/gulf-of-mexico.json",
+      "format": "json",
+      "level": 3,
+      "stride": 4,
+      "resolutionArcSec": 60,
+      "provenance": "preset_regional",
       "bounds": {
         "minLat": 24.39999999999999,
         "maxLat": 25.599999999999994,
@@ -100,12 +142,19 @@
       "gridHeight": 73,
       "minDepth": 3299,
       "maxDepth": 4008,
+      "minElevation": -4008,
+      "maxElevation": -3299,
       "landmarksCount": 1
     },
     {
       "id": "mediterranean-sea",
       "name": "Mediterranean Sea (Ionian Basin)",
       "file": "tiles/mediterranean-sea.json",
+      "format": "json",
+      "level": 3,
+      "stride": 4,
+      "resolutionArcSec": 60,
+      "provenance": "preset_regional",
       "bounds": {
         "minLat": 36,
         "maxLat": 37.2,
@@ -116,12 +165,19 @@
       "gridHeight": 73,
       "minDepth": 0,
       "maxDepth": 5119,
+      "minElevation": -5119,
+      "maxElevation": 0,
       "landmarksCount": 1
     },
     {
       "id": "sargasso-sea",
       "name": "Sargasso Sea (North Atlantic Plain)",
       "file": "tiles/sargasso-sea.json",
+      "format": "json",
+      "level": 3,
+      "stride": 4,
+      "resolutionArcSec": 60,
+      "provenance": "preset_regional",
       "bounds": {
         "minLat": 27.39999999999999,
         "maxLat": 28.599999999999994,
@@ -132,12 +188,19 @@
       "gridHeight": 73,
       "minDepth": 3938,
       "maxDepth": 5653,
+      "minElevation": -5653,
+      "maxElevation": -3938,
       "landmarksCount": 1
     },
     {
       "id": "coral-sea",
       "name": "Coral Sea (Great Barrier Reef Margin)",
       "file": "tiles/coral-sea.json",
+      "format": "json",
+      "level": 3,
+      "stride": 4,
+      "resolutionArcSec": 60,
+      "provenance": "preset_regional",
       "bounds": {
         "minLat": -18.599999999999994,
         "maxLat": -17.400000000000006,
@@ -148,12 +211,19 @@
       "gridHeight": 73,
       "minDepth": 8,
       "maxDepth": 1635,
+      "minElevation": -1635,
+      "maxElevation": -8,
       "landmarksCount": 1
     },
     {
       "id": "philippine-sea",
       "name": "Philippine Sea (Philippine Trench)",
       "file": "tiles/philippine-sea.json",
+      "format": "json",
+      "level": 3,
+      "stride": 4,
+      "resolutionArcSec": 60,
+      "provenance": "preset_regional",
       "bounds": {
         "minLat": 10,
         "maxLat": 11.200000000000003,
@@ -164,6 +234,8 @@
       "gridHeight": 73,
       "minDepth": 0,
       "maxDepth": 9820,
+      "minElevation": -9820,
+      "maxElevation": 0,
       "landmarksCount": 1
     }
   ]

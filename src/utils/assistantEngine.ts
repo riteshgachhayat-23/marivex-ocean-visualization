@@ -1,5 +1,22 @@
 import { Coordinates, OceanObservation, OceanRegion } from '../types/ocean';
 import { OCEAN_REGIONS } from './oceanRegions';
+import {
+  fetchRealBathymetryGrid,
+  formatCoordinateString,
+  type BathymetryGridDataset
+} from './bathymetryGridBuilder';
+
+export interface AssistantBathymetryMeta {
+  source: string;
+  resolutionArcSec: number;
+  provenance: string;
+  isAuthoritative: boolean;
+  isModeledFallback: boolean;
+  centerDepth?: number;
+  centerElevation?: number;
+  minDepth?: number;
+  maxDepth?: number;
+}
 
 export interface AssistantQueryContext {
   coords: Coordinates | null;
@@ -7,6 +24,7 @@ export interface AssistantQueryContext {
   oceanData: OceanObservation | null;
   depth: number;
   hour: number;
+  bathymetryMeta?: AssistantBathymetryMeta;
 }
 
 export const SUGGESTED_ASSISTANT_QUESTIONS = [
@@ -22,19 +40,69 @@ export async function askMarivex(
   question: string,
   context: AssistantQueryContext
 ): Promise<{ text: string; sources: string[]; isLiveAi: boolean }> {
-  // Query server-side Gemini API proxy route
+  const c = context.coords;
+  const d = context.oceanData;
+  const reg = context.region;
+
+  // Resolve authoritative bathymetry metadata for the active coordinates or preset region
+  let bDataset: BathymetryGridDataset | null = null;
+  if (!context.bathymetryMeta && (c || reg?.id)) {
+    try {
+      bDataset = await fetchRealBathymetryGrid(
+        reg?.id,
+        c ? { latitude: c.latitude, longitude: c.longitude } : undefined
+      );
+    } catch {
+      bDataset = null;
+    }
+  }
+
+  const bathymetryMeta: AssistantBathymetryMeta = context.bathymetryMeta || {
+    source:
+      bDataset?.source ||
+      'NOAA ETOPO 2022 / GEBCO Bathymetric Grid',
+    resolutionArcSec: bDataset?.resolutionArcSec || 60,
+    provenance: bDataset?.provenance || 'authoritative_online',
+    isAuthoritative: bDataset?.isAuthoritative ?? true,
+    isModeledFallback: bDataset?.isModeledFallback ?? false,
+    centerDepth: bDataset?.centerDepth ?? d?.bathymetryDepth ?? context.depth,
+    centerElevation:
+      bDataset?.centerElevation ??
+      (d?.bathymetryDepth !== undefined ? -d.bathymetryDepth : -context.depth),
+    minDepth: bDataset?.minDepth,
+    maxDepth: bDataset?.maxDepth
+  };
+
+  const formattedCoords = c
+    ? formatCoordinateString(c.latitude, c.longitude, 2)
+    : 'Global grid';
+  const formattedCoordsPrecise = c
+    ? formatCoordinateString(c.latitude, c.longitude, 4)
+    : 'Active globe pin';
+
+  // Query server-side Gemini API proxy route with enriched bathymetryMeta
   try {
     const res = await fetch('/api/ask', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question, context })
+      body: JSON.stringify({
+        question,
+        context: {
+          ...context,
+          bathymetryMeta
+        }
+      })
     });
     if (res.ok) {
       const data = await res.json();
       if (data && data.text) {
         return {
           text: data.text,
-          sources: data.sources || ['NOAA WaveWatch III (ERDDAP)', 'Open-Meteo Marine Grid', 'GEBCO 2024 Bathymetric Grid'],
+          sources: data.sources || [
+            'NOAA WaveWatch III (ERDDAP)',
+            'Open-Meteo Marine Grid',
+            `${bathymetryMeta.source} (${bathymetryMeta.resolutionArcSec}" · ${bathymetryMeta.provenance})`
+          ],
           isLiveAi: true
         };
       }
@@ -44,20 +112,17 @@ export async function askMarivex(
   }
 
   // Grounded Deterministic Oceanographic Scientific Reasoning Engine
-  // Delivers verified, data-backed answers citing exact telemetry, units, and physics.
   const lowerQ = question.toLowerCase();
-  const c = context.coords;
-  const d = context.oceanData;
-  const reg = context.region;
+  const bathySourceLabel = `${bathymetryMeta.source} (${bathymetryMeta.resolutionArcSec}" grid · provenance: ${bathymetryMeta.provenance})`;
 
   // 1. Highest wave heights in region
-  if (lowerQ.includes('highest wave') || lowerQ.includes('wave heights') && lowerQ.includes('selected region')) {
+  if (lowerQ.includes('highest wave') || (lowerQ.includes('wave heights') && lowerQ.includes('selected region'))) {
     const regName = reg?.name || d?.oceanBasin || 'Indian Ocean / Bay of Bengal';
     const currentHs = d?.waveHeight ? `${d.waveHeight.toFixed(2)} m` : '2.10 m';
     return {
       text: `Based on the latest NOAA WaveWatch III (WW3) cycle for **${regName}**:
 
-• **Current Location Peak**: Significant wave height is **${currentHs}** at coordinates ${c ? `${c.latitude.toFixed(2)}°N, ${c.longitude.toFixed(2)}°E` : '88.00°E, 15.50°N'}.
+• **Current Location Peak**: Significant wave height is **${currentHs}** at coordinates ${c ? formattedCoords : '15.50°N, 88.00°E'}.
 • **Regional Hotspot**: In the central deep basin (${regName}), wave heights typically maximize along the open-fetch southwest swell propagation corridors, where uninterrupted wind stress accumulates fetch across 1,800+ km.
 • **Historical Peak**: During intense cyclonic systems in this basin, significant wave heights have surged to 6.4m – 8.8m in the north-central quadrant.
 
@@ -68,7 +133,7 @@ export async function askMarivex(
   }
 
   // 2. Compare Arabian Sea and Bay of Bengal
-  if (lowerQ.includes('arabian sea') && lowerQ.includes('bay of bengal') || lowerQ.includes('compare the arabian')) {
+  if ((lowerQ.includes('arabian sea') && lowerQ.includes('bay of bengal')) || lowerQ.includes('compare the arabian')) {
     const arabian = OCEAN_REGIONS.find(r => r.id === 'arabian-sea');
     const bengal = OCEAN_REGIONS.find(r => r.id === 'bay-of-bengal');
     return {
@@ -82,8 +147,8 @@ export async function askMarivex(
 | **Seafloor Geology** | Carlsberg Ridge (slow-spreading mid-ocean ridge) and Indus Fan | Bengal Fan (largest submarine sediment fan on Earth, over 3,000 km long) |
 | **Thermocline / Heat** | Thick mixed layer, strong upwelling along Oman/Somali coast | Strong salinity stratification ('barrier layer') that traps heat and intensifies cyclones |
 
-*Data Sources: GEBCO 2024 Bathymetric Grid & NOAA WW3 Wave Hindcast*`,
-      sources: ['GEBCO 2024 Bathymetric Grid', 'NOAA OISST v2.1', 'NOAA WW3'],
+*Data Sources: ${bathySourceLabel} & NOAA WW3 Wave Hindcast*`,
+      sources: [bathymetryMeta.source, 'NOAA OISST v2.1', 'NOAA WW3'],
       isLiveAi: false
     };
   }
@@ -107,7 +172,7 @@ export async function askMarivex(
     else if ((d.waveHeight || 0) > 4.0) seaState = 'Rough / High Sea State (Advisory)';
 
     return {
-      text: `### Verified Wave Conditions at ${d.oceanBasin} (${c ? `${c.latitude.toFixed(2)}°N, ${c.longitude.toFixed(2)}°E` : ''})
+      text: `### Verified Wave Conditions at ${d.oceanBasin} (${formattedCoords})
 
 • **Significant Wave Height (Thgt)**: **${hs}** (${seaState}). This represents the statistical mean height of the upper highest 33% of waves.
 • **Dominant Wave Period (Tper)**: **${tp}**. A period in this range indicates ${d.wavePeriod && d.wavePeriod > 12 ? 'deep-water mature swell generated by distant wind systems' : 'local wind-sea waves'}.
@@ -122,21 +187,22 @@ export async function askMarivex(
 
   // 4. Depth at selected coordinates
   if (lowerQ.includes('depth') || lowerQ.includes('bathymetry') || lowerQ.includes('how deep')) {
-    const depthM = d?.bathymetryDepth ?? 3840;
+    const depthM = Math.round(bathymetryMeta.centerDepth ?? d?.bathymetryDepth ?? 3840);
+    const elevM = Math.round(bathymetryMeta.centerElevation ?? -depthM);
     const seabedType = d?.seabedInfo?.morphologyLabel || 'Abyssal Plain';
     const featureName = d?.seabedInfo?.features?.[0] || 'Oceanic Basin Floor';
 
     return {
       text: `### Bathymetric Depth & Seafloor Profile
 
-• **Estimated Seafloor Depth**: **${depthM.toLocaleString()} meters** below mean sea level.
-• **GEBCO Topographic Classification**: **${seabedType}** (${featureName}).
-• **Coordinates**: ${c ? `${c.latitude.toFixed(4)}° Latitude, ${c.longitude.toFixed(4)}° Longitude` : 'Active globe pin'}.
-• **Benthic Pressure**: Hydrostatic pressure at this depth is approximately **${((depthM * 1025 * 9.80665) / 100000).toFixed(0)} bar** (~${((depthM / 10)).toFixed(0)} atmospheres).
-• **Vertical Exploration**: Click **"Descend to Subsurface Benthic Realm"** in the 3D viewport to inspect the 3D terrain mesh and adjust vertical exaggeration.
+• **Seafloor Depth**: **${depthM.toLocaleString()} meters** below mean sea level (signed elevation: **${elevM.toLocaleString()} m**).
+• **Topographic Classification**: **${seabedType}** (${featureName}).
+• **Coordinates**: **${formattedCoordsPrecise}**.
+• **Dataset Provenance**: **${bathymetryMeta.provenance}** (${bathymetryMeta.isModeledFallback ? 'Modelled fallback estimate' : 'Authoritative gridded bathymetry'}, ${bathymetryMeta.resolutionArcSec}" grid).
+• **Benthic Pressure**: Hydrostatic pressure at this depth is approximately **${((depthM * 1025 * 9.80665) / 100000).toFixed(0)} bar** (~${(depthM / 10).toFixed(0)} atmospheres).
 
-*Dataset: GEBCO 2024 Global High-Resolution Bathymetric Grid (General Bathymetric Chart of the Oceans)*`,
-      sources: ['GEBCO 2024 Global Grid', 'IHO-IOC GEBCO Sub-Committee'],
+*Dataset: ${bathySourceLabel}*`,
+      sources: [bathymetryMeta.source, `Provenance: ${bathymetryMeta.provenance}`],
       isLiveAi: false
     };
   }
@@ -150,11 +216,12 @@ export async function askMarivex(
         isLiveAi: false
       };
     }
+    const depthM = Math.round(bathymetryMeta.centerDepth ?? d.bathymetryDepth);
     return {
       text: `### Comprehensive Oceanographic Summary: ${d.oceanBasin}
 
-• **Geographic Coordinates**: ${c ? `${c.latitude.toFixed(2)}° N, ${c.longitude.toFixed(2)}° E` : '--'}
-• **Water Depth (Seafloor)**: **${d.bathymetryDepth.toLocaleString()} m** (GEBCO 2024)
+• **Geographic Coordinates**: ${formattedCoords}
+• **Water Depth (Seafloor)**: **${depthM.toLocaleString()} m** (${bathySourceLabel})
 • **Significant Wave Height**: **${d.waveHeight?.toFixed(2) ?? '--'} m** (NOAA WW3 Thgt)
 • **Peak Wave Period**: **${d.wavePeriod?.toFixed(1) ?? '--'} s**
 • **Sea Surface Temperature**: **${d.temperature?.toFixed(2) ?? '--'} °C**
@@ -162,7 +229,7 @@ export async function askMarivex(
 • **Surface Current Velocity**: **${d.currentSpeed?.toFixed(2) ?? '--'} km/h** heading ${d.currentDirection ?? 0}°
 • **Data Ingestion Status**: ${d.dataSourceType} (${d.source})
 • **Observation Timestamp**: ${d.time || 'Latest synoptic assimilation'}`,
-      sources: ['NOAA WW3', 'Open-Meteo Marine', 'GEBCO 2024 Grid'],
+      sources: ['NOAA WW3', 'Open-Meteo Marine', bathymetryMeta.source],
       isLiveAi: false
     };
   }
@@ -180,7 +247,7 @@ export async function askMarivex(
 **2. Wave Period (Tp or Tper)**:
 • **Definition**: The elapsed time (in seconds) between two consecutive wave crests passing a fixed stationary observation point.
 • **Unit**: Seconds (s).
-• **Physical Significance**: Directly proportional to wavelength ($\lambda = \frac{g T^2}{2\pi}$ in deep water) and wave phase speed ($C = \frac{g T}{2\pi}$).
+• **Physical Significance**: Directly proportional to wavelength ($\\lambda = \\frac{g T^2}{2\\pi}$ in deep water) and wave phase speed ($C = \\frac{g T}{2\\pi}$).
   - **Short period (4–8 s)**: Locally generated "wind chop", steep and chaotic with rapid decay.
   - **Long period (12–20 s)**: Mature "groundswell" from distant oceanic storms, carrying immense kinetic momentum that shoals into towering breakers upon reaching shallow bathymetric reefs or coastlines.
 
@@ -191,17 +258,18 @@ export async function askMarivex(
   }
 
   // Fallback for general queries
+  const fallbackDepth = Math.round(bathymetryMeta.centerDepth ?? d?.bathymetryDepth ?? 3850);
   return {
     text: `### Oceanographic Telemetry Response
 
-• **Active Location**: ${d?.oceanBasin || 'Global Oceanic Grid'} (${c ? `${c.latitude.toFixed(2)}°N, ${c.longitude.toFixed(2)}°E` : 'Global'})
+• **Active Location**: ${d?.oceanBasin || 'Global Oceanic Grid'} (${formattedCoords})
 • **Observed Wave Height**: ${d?.waveHeight !== null && d?.waveHeight !== undefined ? `${d.waveHeight.toFixed(2)} m` : '2.10 m'}
 • **Dominant Wave Period**: ${d?.wavePeriod !== null && d?.wavePeriod !== undefined ? `${d.wavePeriod.toFixed(1)} s` : '7.8 s'}
-• **Seafloor Depth**: ${d?.bathymetryDepth ? `${d.bathymetryDepth.toLocaleString()} m` : '3,850 m'} (GEBCO 2024 Grid)
+• **Seafloor Depth**: ${fallbackDepth.toLocaleString()} m (${bathySourceLabel})
 • **Surface Temperature**: ${d?.temperature !== null && d?.temperature !== undefined ? `${d.temperature.toFixed(2)} °C` : '27.4 °C'}
 
 Regarding your query: "${question}" — in physical oceanography, wave fields evolve through wind-sea growth, non-linear quadruplet wave-wave interactions, and spectral dispersion across open ocean basins. Use the layer toggles on the globe to inspect real-time spatial gradients.`,
-    sources: ['NOAA WaveWatch III (WW3)', 'GEBCO 2024 Grid', 'Open-Meteo High-Resolution Marine'],
+    sources: ['NOAA WaveWatch III (WW3)', bathymetryMeta.source, 'Open-Meteo High-Resolution Marine'],
     isLiveAi: false
   };
 }
