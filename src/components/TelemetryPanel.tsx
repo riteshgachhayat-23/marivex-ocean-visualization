@@ -99,11 +99,21 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({
         };
       }
       case 'Bathymetry': {
+        const isLand = oceanData.seabedInfo?.isLand;
+        const elev = oceanData.seabedInfo?.elevationMeters;
         const val = oceanData.bathymetryDepth;
+        const src = oceanData.seabedInfo?.source || 'Authoritative Bathymetric Grid';
+        if (isLand && elev !== undefined) {
+          return {
+            value: `+${elev.toLocaleString()}`,
+            unit: 'm ASL (Land Elevation)',
+            assessment: `Above Mean Sea Level · ${src}`
+          };
+        }
         return {
           value: `${val.toLocaleString()}`,
-          unit: 'meters (GEBCO Seafloor)',
-          assessment: `Subsea ocean trench / abyssal floor plain`
+          unit: `meters (${oceanData.seabedInfo?.provenance === 'modelled' ? 'Modelled Seafloor' : 'Seafloor Depth'})`,
+          assessment: `${oceanData.seabedInfo?.morphologyLabel || 'Subsea ocean floor'} · ${src}`
         };
       }
       default:
@@ -316,19 +326,23 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({
               </div>
             </div>
 
-            {/* Water depth */}
+            {/* Water depth / Land elevation */}
             <div className="p-2.5 rounded-xl border border-cyan-500/15 bg-[#041b32] flex items-center justify-between">
               <div>
                 <span className="text-slate-300 font-medium flex items-center gap-1.5">
                   <Mountain className="w-3.5 h-3.5 text-cyan-400" />
-                  Water Depth (Seafloor)
+                  {oceanData?.seabedInfo?.isLand ? 'Land Elevation (ASL)' : 'Water Depth (Seafloor)'}
                 </span>
-                <span className="text-[10px] text-slate-400 block mt-0.5">Retrieved from GEBCO 2024 bathymetry</span>
+                <span className="text-[10px] text-slate-400 block mt-0.5">
+                  {oceanData?.seabedInfo?.source || 'Unified Bathymetric Pipeline'}
+                </span>
               </div>
               <strong className="font-mono text-base text-cyan-300">
-                {oceanData?.bathymetryDepth !== undefined
-                  ? `${oceanData.bathymetryDepth.toLocaleString()} m`
-                  : '--'}
+                {oceanData?.seabedInfo?.isLand && oceanData?.seabedInfo?.elevationMeters !== undefined
+                  ? `+${oceanData.seabedInfo.elevationMeters.toLocaleString()} m`
+                  : oceanData?.bathymetryDepth !== undefined
+                    ? `${oceanData.bathymetryDepth.toLocaleString()} m`
+                    : '--'}
               </strong>
             </div>
           </div>
@@ -499,7 +513,7 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({
           Waves & Currents: <span className="text-slate-200">NOAA WaveWatch III (WW3 via ERDDAP) & Open-Meteo High-Res</span>
         </p>
         <p className="leading-relaxed text-[10px]">
-          Bathymetry: <span className="text-slate-200">GEBCO 2024 Global Subsea Grid</span>
+          Bathymetry: <span className="text-slate-200">{oceanData?.seabedInfo?.source || 'GEBCO / NOAA ETOPO Global & Regional Bathymetric Pipeline'}</span>
         </p>
         <p className="leading-relaxed text-[10px]">
           Physics: <span className="text-slate-200">UNESCO EOS-80 & NOAA World Ocean Atlas</span>

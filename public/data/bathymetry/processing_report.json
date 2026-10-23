@@ -1,0 +1,114 @@
+{
+  "generatedAt": "2026-10-23T06:57:28.058Z",
+  "dataset": "GEBCO / NOAA NCEI Regional Bathymetric Preset Extracts (1-Arc-Minute)",
+  "version": "2026-regional-presets",
+  "coverage": "regional_presets",
+  "gridIntervalArcSec": 60,
+  "totalManifestTiles": 10,
+  "validTiles": 10,
+  "missingTiles": 0,
+  "totalTileBytes": 257523,
+  "noDataSentinel": -32768,
+  "tileChecks": [
+    {
+      "id": "mariana-trench",
+      "file": "tiles/mariana-trench.json",
+      "status": "ok",
+      "bytes": 27897,
+      "gridWidth": 73,
+      "gridHeight": 73,
+      "minElevation": -10898,
+      "maxElevation": -1513
+    },
+    {
+      "id": "atlantic-ridge",
+      "file": "tiles/atlantic-ridge.json",
+      "status": "ok",
+      "bytes": 27672,
+      "gridWidth": 73,
+      "gridHeight": 73,
+      "minElevation": -4700,
+      "maxElevation": -1606
+    },
+    {
+      "id": "puerto-rico-trench",
+      "file": "tiles/puerto-rico-trench.json",
+      "status": "ok",
+      "bytes": 27728,
+      "gridWidth": 73,
+      "gridHeight": 73,
+      "minElevation": -8497,
+      "maxElevation": -5115
+    },
+    {
+      "id": "arabian-sea",
+      "file": "tiles/arabian-sea.json",
+      "status": "ok",
+      "bytes": 27468,
+      "gridWidth": 73,
+      "gridHeight": 73,
+      "minElevation": -4603,
+      "maxElevation": -1198
+    },
+    {
+      "id": "bay-of-bengal",
+      "file": "tiles/bay-of-bengal.json",
+      "status": "ok",
+      "bytes": 17802,
+      "gridWidth": 73,
+      "gridHeight": 73,
+      "minElevation": -1118,
+      "maxElevation": 0
+    },
+    {
+      "id": "gulf-of-mexico",
+      "file": "tiles/gulf-of-mexico.json",
+      "status": "ok",
+      "bytes": 27193,
+      "gridWidth": 73,
+      "gridHeight": 73,
+      "minElevation": -4008,
+      "maxElevation": -3299
+    },
+    {
+      "id": "mediterranean-sea",
+      "file": "tiles/mediterranean-sea.json",
+      "status": "ok",
+      "bytes": 24305,
+      "gridWidth": 73,
+      "gridHeight": 73,
+      "minElevation": -5119,
+      "maxElevation": 0
+    },
+    {
+      "id": "sargasso-sea",
+      "file": "tiles/sargasso-sea.json",
+      "status": "ok",
+      "bytes": 27224,
+      "gridWidth": 73,
+      "gridHeight": 73,
+      "minElevation": -5653,
+      "maxElevation": -3938
+    },
+    {
+      "id": "coral-sea",
+      "file": "tiles/coral-sea.json",
+      "status": "ok",
+      "bytes": 23319,
+      "gridWidth": 73,
+      "gridHeight": 73,
+      "minElevation": -1635,
+      "maxElevation": -8
+    },
+    {
+      "id": "philippine-sea",
+      "file": "tiles/philippine-sea.json",
+      "status": "ok",
+      "bytes": 26915,
+      "gridWidth": 73,
+      "gridHeight": 73,
+      "minElevation": -9820,
+      "maxElevation": 0
+    }
+  ]
+}

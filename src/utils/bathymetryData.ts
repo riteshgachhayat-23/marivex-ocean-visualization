@@ -1,3 +1,5 @@
+import { findPresetCoveringCoordinates, normalizeLongitude } from './bathymetryGridBuilder';
+
 export type SeabedMorphologyType = 
   | 'trench' 
   | 'shelf' 
@@ -6,7 +8,11 @@ export type SeabedMorphologyType =
   | 'abyssal_plain';
 
 export interface AccurateSeabedInfo {
-  depth: number; // in meters
+  depth: number; // positive underwater depth in meters (0 for land)
+  elevationMeters?: number; // signed elevation in meters (negative = underwater, positive = land)
+  isLand?: boolean;
+  source?: string;
+  provenance?: string;
   morphology: SeabedMorphologyType;
   morphologyLabel: string;
   sedimentType: string;
@@ -316,13 +322,70 @@ const KNOWN_FEATURES: KnownBathymetricFeature[] = [
 ];
 
 /**
- * Calculates high-accuracy bathymetric seabed depth, geological morphology,
+ * Calculates bathymetric seabed depth, geological morphology,
  * sediment composition, and benthic environmental properties.
+ * Uses authoritative signed elevation from the unified bathymetry pipeline when provided
+ * or when covered by a local regional tile, and never converts positive land elevations
+ * into artificial water depths.
  */
-export function getAccurateSeabed(lat: number, lon: number): AccurateSeabedInfo {
-  let normLon = ((lon + 180) % 360) - 180;
+export function getAccurateSeabed(
+  lat: number,
+  lon: number,
+  options?: {
+    measuredElevationMeters?: number | null;
+    source?: string;
+    provenance?: string;
+  }
+): AccurateSeabedInfo {
+  const normLon = normalizeLongitude(lon);
+  const absLat = Math.abs(lat);
 
-  // 1. Check known landmark features first with radial inverse-distance weighting
+  // 0. If no explicit measuredElevationMeters was passed, check if a local regional preset tile covers (lat, lon)
+  let measuredElevation = options?.measuredElevationMeters;
+  let resolvedSource = options?.source;
+  let resolvedProvenance = options?.provenance;
+
+  if (measuredElevation === undefined || measuredElevation === null) {
+    const presetTile = findPresetCoveringCoordinates(lat, normLon);
+    if (presetTile && presetTile.rawElevations && presetTile.bounds) {
+      const b = presetTile.bounds;
+      const v = Math.min(1, Math.max(0, (b.maxLat - lat) / Math.max(1e-6, b.maxLat - b.minLat)));
+      const u = Math.min(1, Math.max(0, (normLon - b.minLon) / Math.max(1e-6, b.maxLon - b.minLon)));
+      const r = Math.min(presetTile.gridHeight - 1, Math.max(0, Math.round(v * (presetTile.gridHeight - 1))));
+      const c = Math.min(presetTile.gridWidth - 1, Math.max(0, Math.round(u * (presetTile.gridWidth - 1))));
+      const val = presetTile.rawElevations[r * presetTile.gridWidth + c];
+      if (val !== undefined && Number.isFinite(val)) {
+        measuredElevation = val;
+        resolvedSource = presetTile.source;
+        resolvedProvenance = presetTile.provenance || 'preset_regional';
+      }
+    }
+  }
+
+  // If we have a positive land elevation from an authoritative grid, never convert it into water depth
+  if (measuredElevation !== undefined && measuredElevation !== null && Number.isFinite(measuredElevation) && measuredElevation > 0) {
+    return {
+      depth: 0,
+      elevationMeters: Math.round(measuredElevation),
+      isLand: true,
+      source: resolvedSource || 'Authoritative Topographic-Bathymetric Grid',
+      provenance: resolvedProvenance || 'authoritative_online',
+      morphology: 'shelf',
+      morphologyLabel: `Continental Landmass (+${Math.round(measuredElevation)}m ASL)`,
+      sedimentType: 'Subaerial continental crust & coastal regolith',
+      benthicTemperature: 15.0,
+      benthicPressure: 1.0,
+      tectonicPlate: lat >= 0 ? 'Northern Continental Lithosphere' : 'Southern Continental Lithosphere',
+      features: ['Above Mean Sea Level (Land)', 'Subaerial topography']
+    };
+  }
+
+  const authoritativeDepth =
+    measuredElevation !== undefined && measuredElevation !== null && Number.isFinite(measuredElevation)
+      ? Math.max(0, Math.round(-measuredElevation))
+      : null;
+
+  // 1. Check known landmark features for geological context (using authoritative depth when available)
   for (const feature of KNOWN_FEATURES) {
     const dLat = Math.abs(feature.lat - lat);
     let dLon = Math.abs(feature.lon - normLon);
@@ -330,16 +393,20 @@ export function getAccurateSeabed(lat: number, lon: number): AccurateSeabedInfo 
     const dist = Math.hypot(dLat, dLon);
 
     if (dist <= feature.radiusDeg) {
-      // Calculate realistic local bathymetry interpolation
       const factor = dist / feature.radiusDeg;
       const variation = (Math.sin(lat * 3.5) * Math.cos(normLon * 3.5)) * 120;
-      const depth = Math.round(feature.depth - factor * 400 + variation);
+      const fallbackDepth = Math.max(15, Math.round(feature.depth - factor * 400 + variation));
+      const depth = authoritativeDepth !== null ? authoritativeDepth : fallbackDepth;
 
       const benthicPressure = Number((1.013 + depth * 0.1008).toFixed(1));
       const benthicTemp = Number((depth > 4000 ? 1.6 + Math.sin(lat) * 0.4 : depth < 200 ? 18.5 : 2.5).toFixed(2));
 
       return {
-        depth: Math.max(15, depth),
+        depth,
+        elevationMeters: -depth,
+        isLand: false,
+        source: resolvedSource || 'Regional Bathymetric Feature Model',
+        provenance: resolvedProvenance || (authoritativeDepth !== null ? 'preset_regional' : 'modelled'),
         morphology: feature.morphology,
         morphologyLabel: feature.label,
         sedimentType: feature.sediment,
@@ -351,18 +418,66 @@ export function getAccurateSeabed(lat: number, lon: number): AccurateSeabedInfo 
     }
   }
 
-  // 2. Continental Shelf / Marginal Sea General Basins
-  const absLat = Math.abs(lat);
+  // 2. If authoritative depth was measured outside named landmarks, classify morphology from true depth
+  if (authoritativeDepth !== null) {
+    const morphology: SeabedMorphologyType =
+      authoritativeDepth > 6000
+        ? 'trench'
+        : authoritativeDepth < 200
+          ? 'shelf'
+          : authoritativeDepth < 2200
+            ? 'slope'
+            : authoritativeDepth < 3400
+              ? 'ridge'
+              : 'abyssal_plain';
+    const morphologyLabel =
+      morphology === 'trench'
+        ? 'Hadal Subduction Trench'
+        : morphology === 'shelf'
+          ? 'Continental Shelf Platform'
+          : morphology === 'slope'
+            ? 'Continental Slope & Margin'
+            : morphology === 'ridge'
+              ? 'Bathyal Ridge / Seamount Province'
+              : 'Oceanic Abyssal Plain';
+    const benthicPressure = Number((1.013 + authoritativeDepth * 0.1008).toFixed(1));
+    const benthicTemp = Number((authoritativeDepth > 4000 ? 1.7 : authoritativeDepth < 200 ? 16.5 : 2.8).toFixed(2));
 
+    return {
+      depth: authoritativeDepth,
+      elevationMeters: -authoritativeDepth,
+      isLand: false,
+      source: resolvedSource || 'Authoritative Bathymetric Grid',
+      provenance: resolvedProvenance || 'authoritative_online',
+      morphology,
+      morphologyLabel,
+      sedimentType:
+        authoritativeDepth < 200
+          ? 'Neritic terrigenous sand & carbonate shelf sediment'
+          : absLat > 50
+            ? 'Glaciomarine & diatomaceous siliceous ooze'
+            : 'Pelagic clay & calcareous foraminiferal ooze',
+      benthicTemperature: benthicTemp,
+      benthicPressure,
+      tectonicPlate: lat >= 0 ? 'North Oceanic Lithospheric Plate' : 'South Oceanic Lithospheric Plate',
+      features: [morphologyLabel, 'Gridded bathymetric sounding']
+    };
+  }
+
+  // 3. Marginal Sea General Basins (Modelled fallback when called synchronously without authoritative grid)
   // Mediterranean Sea
   if (lat >= 30 && lat <= 45 && normLon >= -5 && normLon <= 36) {
     const medDepth = 2400 + Math.round(Math.sin(lat * 2) * Math.cos(normLon * 2) * 650);
     return {
       depth: medDepth,
+      elevationMeters: -medDepth,
+      isLand: false,
+      source: 'Modelled Regional Hypsometry (Non-Survey Fallback)',
+      provenance: 'modelled',
       morphology: 'slope',
       morphologyLabel: 'Mediterranean Deep Basin & Escarpment',
       sedimentType: 'Sapropelic biogenic mud & calcareous ooze',
-      benthicTemperature: 13.5, // Unique Mediterranean warm deep water (~13.5°C)
+      benthicTemperature: 13.5,
       benthicPressure: Number((1.013 + medDepth * 0.1008).toFixed(1)),
       tectonicPlate: 'African-Eurasian convergent zone',
       features: ['Calypso Deep (5,267m)', 'Hellenic Trench Arc', 'Submarine canyon systems']
@@ -374,10 +489,14 @@ export function getAccurateSeabed(lat: number, lon: number): AccurateSeabedInfo 
     const redSeaDepth = 1250 + Math.round(Math.cos(lat) * 450);
     return {
       depth: redSeaDepth,
+      elevationMeters: -redSeaDepth,
+      isLand: false,
+      source: 'Modelled Regional Hypsometry (Non-Survey Fallback)',
+      provenance: 'modelled',
       morphology: 'ridge',
       morphologyLabel: 'Red Sea Axial Rift & Brine Deep',
       sedimentType: 'Hydrothermal metalliferous sediment & carbonate mud',
-      benthicTemperature: 21.5, // Hot deep brine pools (Atlantis II Deep)
+      benthicTemperature: 21.5,
       benthicPressure: Number((1.013 + redSeaDepth * 0.1008).toFixed(1)),
       tectonicPlate: 'Arabian & Nubian Plate divergent rift',
       features: ['Atlantis II Deep', 'Hydrothermal metal-rich brines']
@@ -389,6 +508,10 @@ export function getAccurateSeabed(lat: number, lon: number): AccurateSeabedInfo 
     const caribDepth = 3600 + Math.round(Math.sin(lat) * 500);
     return {
       depth: caribDepth,
+      elevationMeters: -caribDepth,
+      isLand: false,
+      source: 'Modelled Regional Hypsometry (Non-Survey Fallback)',
+      provenance: 'modelled',
       morphology: 'abyssal_plain',
       morphologyLabel: 'Caribbean Abyssal Basin & Trench Margin',
       sedimentType: 'Pteropod & foraminiferal calcareous ooze',
@@ -404,6 +527,10 @@ export function getAccurateSeabed(lat: number, lon: number): AccurateSeabedInfo 
     const ridgeDepth = 2600 + Math.round(Math.sin(lat * 5) * 450);
     return {
       depth: ridgeDepth,
+      elevationMeters: -ridgeDepth,
+      isLand: false,
+      source: 'Modelled Regional Hypsometry (Non-Survey Fallback)',
+      provenance: 'modelled',
       morphology: 'ridge',
       morphologyLabel: 'Mid-Ocean Ridge Axial Crest & Rift Valley',
       sedimentType: 'Volcanic basalt, hydrothermal sulfides & foraminiferal sand',
@@ -414,15 +541,19 @@ export function getAccurateSeabed(lat: number, lon: number): AccurateSeabedInfo 
     };
   }
 
-  // Global Default Abyssal Plains (Average world ocean floor ~ 4,200m - 5,200m)
+  // Global Default Abyssal Plains (Modelled fallback)
   const baseAbyssalDepth = 4300 + Math.round((Math.sin(lat * 0.25) * Math.cos(normLon * 0.25)) * 600);
   const benthicPressure = Number((1.013 + baseAbyssalDepth * 0.1008).toFixed(1));
   const benthicTemp = Number((absLat > 60 ? -0.4 : 1.9).toFixed(2));
 
   return {
     depth: baseAbyssalDepth,
+    elevationMeters: -baseAbyssalDepth,
+    isLand: false,
+    source: 'Modelled Regional Hypsometry (Non-Survey Fallback)',
+    provenance: 'modelled',
     morphology: 'abyssal_plain',
-    morphologyLabel: 'Vast Oceanic Abyssal Plain',
+    morphologyLabel: 'Vast Oceanic Abyssal Plain (Modelled Estimate)',
     sedimentType: absLat > 50 ? 'Diatomaceous siliceous ooze' : 'Pelagic red clay & foraminiferal sediment',
     benthicTemperature: benthicTemp,
     benthicPressure,

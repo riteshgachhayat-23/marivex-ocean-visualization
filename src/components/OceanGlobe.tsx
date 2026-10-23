@@ -1113,9 +1113,14 @@ export const OceanGlobe: React.FC<OceanGlobeProps> = ({
     if (!mesh || !group) return;
 
     let active = true;
+    const controller = new AbortController();
     const targetRegionId = selectedRegion?.id;
+    const hasLookupTarget = Boolean(selectedCoords || targetRegionId);
+    if (!hasLookupTarget) return;
 
-    fetchRealBathymetryGrid(targetRegionId, selectedCoords || undefined)
+    fetchRealBathymetryGrid(targetRegionId, selectedCoords || undefined, {
+      signal: controller.signal
+    })
       .then((dataset) => {
         if (!active || !dataset) return;
         currentBathymetryDatasetRef.current = dataset;
@@ -1125,13 +1130,14 @@ export const OceanGlobe: React.FC<OceanGlobeProps> = ({
         const { gridWidth, gridHeight, elevations, minDepth, maxDepth } = dataset;
         const depthSpan = Math.max(1, maxDepth - minDepth);
 
-        // Update 73x73 mesh vertices using authentic GEBCO elevations
+        // Update mesh vertices using authentic bathymetric elevations
         for (let iy = 0; iy < gridHeight; iy++) {
           for (let ix = 0; ix < gridWidth; ix++) {
             const idx = iy * gridWidth + ix;
             if (idx >= posAttr.count) continue;
 
-            const depthVal = elevations[idx];
+            const rawDepthVal = elevations[idx];
+            const depthVal = Number.isFinite(rawDepthVal) ? rawDepthVal : minDepth + depthSpan * 0.5;
             // Normalized elevation: 0 for deepest trench, 1 for highest peak
             const normElev = 1 - (depthVal - minDepth) / depthSpan;
             const baseY = (normElev - 0.62) * 3.6;
@@ -1167,12 +1173,14 @@ export const OceanGlobe: React.FC<OceanGlobeProps> = ({
         }
         group.position.y = targetY;
       })
-      .catch((err) => {
-        console.warn('[OceanGlobe] Error loading real bathymetry for seabed mesh:', err);
+      .catch((err: any) => {
+        if (err?.name === 'AbortError') return;
+        console.warn('[OceanGlobe] Error loading bathymetry for seabed mesh:', err);
       });
 
     return () => {
       active = false;
+      controller.abort();
     };
   }, [oceanData, depth, verticalExaggeration, selectedCoords, selectedRegion]);
 

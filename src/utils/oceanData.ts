@@ -1,5 +1,6 @@
 import { Coordinates, OceanObservation, PelagicZone, PresetLocation, TimeSeriesPoint } from '../types/ocean';
 import { getAccurateSeabed } from './bathymetryData';
+import { fetchRealBathymetryGrid } from './bathymetryGridBuilder';
 
 export const PELAGIC_ZONES: PelagicZone[] = [
   {
@@ -313,9 +314,26 @@ export async function fetchOceanData(
   hour: number
 ): Promise<OceanObservation> {
   const basin = detectOceanBasin(coords.latitude, coords.longitude);
-  const seabedInfo = getAccurateSeabed(coords.latitude, coords.longitude);
+
+  // Query the unified bathymetry pipeline for the requested coordinates
+  let bathyDataset: Awaited<ReturnType<typeof fetchRealBathymetryGrid>> | null = null;
+  try {
+    bathyDataset = await fetchRealBathymetryGrid(undefined, {
+      latitude: coords.latitude,
+      longitude: coords.longitude,
+      span: 1.2
+    });
+  } catch {
+    bathyDataset = null;
+  }
+
+  const seabedInfo = getAccurateSeabed(coords.latitude, coords.longitude, {
+    measuredElevationMeters: bathyDataset?.centerElevation ?? (bathyDataset?.centerDepth !== undefined ? -bathyDataset.centerDepth : null),
+    source: bathyDataset?.source,
+    provenance: bathyDataset?.provenance
+  });
   const seafloorDepth = seabedInfo.depth;
-  const effectiveDepth = Math.min(depth, seafloorDepth);
+  const effectiveDepth = Math.min(depth, Math.max(0, seafloorDepth));
 
   // Fallback defaults
   const surfaceTempDefault = calculateSurfaceTemperature(coords.latitude, coords.longitude, hour);
@@ -417,6 +435,10 @@ export async function fetchOceanData(
 
   const formattedTime = `${String(hour).padStart(2, '0')}:00 UTC`;
 
+  const actualLat = bathyDataset?.sampledCoordinates?.latitude ?? coords.latitude;
+  const actualLon = bathyDataset?.sampledCoordinates?.longitude ?? coords.longitude;
+  const bathySourceLabel = bathyDataset?.source || seabedInfo.source || 'Bathymetric Hypsometric Model';
+
   return {
     temperature: stratified.temperature,
     salinity: stratified.salinity,
@@ -432,15 +454,15 @@ export async function fetchOceanData(
     dissolvedOxygen: stratified.dissolvedOxygen,
     bathymetryDepth: seafloorDepth,
     seabedInfo,
-    actualLatitude: coords.latitude,
-    actualLongitude: coords.longitude,
+    actualLatitude: actualLat,
+    actualLongitude: actualLon,
     time: formattedTime,
     oceanBasin: basin,
     source: isLiveAPI 
-      ? 'NOAA WaveWatch III (WW3) / Open-Meteo High-Res Marine Assimilation' 
-      : 'NOAA WaveWatch III Climatology & UNESCO EOS-80',
+      ? `NOAA WaveWatch III / Open-Meteo Marine & ${bathySourceLabel}` 
+      : `NOAA WaveWatch III Climatology & ${bathySourceLabel}`,
     dataSourceType: isLiveAPI ? 'LIVE_OBSERVATION' : 'MODEL_FORECAST',
-    modelAttribution: 'NOAA WaveWatch III (ERDDAP Thgt/Tper/Tdir) & GEBCO 2024 Grid',
+    modelAttribution: `NOAA WaveWatch III (ERDDAP Thgt/Tper/Tdir) & ${bathySourceLabel}`,
     timeSeries
   };
 }

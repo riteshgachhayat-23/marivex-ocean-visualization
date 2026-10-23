@@ -10,7 +10,9 @@
     "start": "node server.ts",
     "process:gebco": "node scripts/process_gebco_2026.mjs",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/bathymetry.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -39,7 +41,7 @@
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.28.2",
     "tailwindcss": "^4.3.3",
-    "tsx": "^4.23.15",
+    "tsx": "^4.21.0",
     "typescript": "^7.0.2"
   }
 }

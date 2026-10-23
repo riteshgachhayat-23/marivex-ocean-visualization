@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Coordinates, MarivexChatMessage, OceanObservation, OceanRegion } from '../types/ocean';
 import { askMarivex, SUGGESTED_ASSISTANT_QUESTIONS } from '../utils/assistantEngine';
+import { formatCoordinateString } from '../utils/bathymetryGridBuilder';
 import { 
   Bot, 
   Send, 
@@ -41,9 +42,9 @@ export const AskMarivexAssistant: React.FC<AskMarivexAssistantProps> = ({
     {
       id: 'init-msg',
       role: 'assistant',
-      content: `Hello! I am **Ask MARIVEX**, your oceanographic telemetry and scientific analysis assistant.\n\nI am connected to your active 3D globe coordinates and live NOAA WaveWatch III (WW3 via ERDDAP) wave models, GEBCO 2024 bathymetry, and Open-Meteo marine grids. Click any suggested query below or ask any question about wave dynamics, subsea geology, or regional marine conditions.`,
+      content: `Hello! I am **Ask MARIVEX**, your oceanographic telemetry and scientific analysis assistant.\n\nI am connected to your active 3D globe coordinates and live NOAA WaveWatch III (WW3 via ERDDAP) wave models, authoritative GEBCO / NOAA ETOPO bathymetric grids, and Open-Meteo marine grids. Click any suggested query below or ask any question about wave dynamics, subsea geology, or regional marine conditions.`,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      sources: ['NOAA WaveWatch III', 'GEBCO 2024 Grid', 'Open-Meteo Marine']
+      sources: ['NOAA WaveWatch III', 'GEBCO / NOAA ETOPO Bathymetry', 'Open-Meteo Marine']
     }
   ]);
   const [input, setInput] = useState('');
@@ -66,7 +67,7 @@ export const AskMarivexAssistant: React.FC<AskMarivexAssistantProps> = ({
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       telemetryContext: {
         location: region?.name || oceanData?.oceanBasin || 'Open Ocean',
-        coordinates: coords ? `${coords.latitude.toFixed(2)}°N, ${coords.longitude.toFixed(2)}°E` : undefined,
+        coordinates: coords ? formatCoordinateString(coords.latitude, coords.longitude, 2) : undefined,
         waveHeight: oceanData?.waveHeight !== null ? `${oceanData?.waveHeight}m` : undefined,
         temperature: oceanData?.temperature !== null ? `${oceanData?.temperature}°C` : undefined,
         depth: `${oceanData?.bathymetryDepth ?? depth}m`
@@ -160,7 +161,7 @@ export const AskMarivexAssistant: React.FC<AskMarivexAssistantProps> = ({
             <div className="px-3.5 py-1.5 bg-[#041527] border-b border-white/5 flex items-center justify-between text-[10px] font-mono text-cyan-300/80">
               <div className="flex items-center gap-2 truncate">
                 <span className="text-slate-400">PIN:</span>
-                <span>{coords ? `${coords.latitude.toFixed(1)}°N, ${coords.longitude.toFixed(1)}°E` : 'Global'}</span>
+                <span>{coords ? formatCoordinateString(coords.latitude, coords.longitude, 1) : 'Global'}</span>
                 <span className="text-slate-500">|</span>
                 <span className="text-slate-400">Hs:</span>
                 <span className="text-cyan-200">{oceanData?.waveHeight ? `${oceanData.waveHeight.toFixed(1)}m` : '--'}</span>
