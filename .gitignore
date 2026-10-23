@@ -6,3 +6,16 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Large binary geospatial datasets (GEBCO NetCDF, GeoTIFF, HDF5)
+*.nc
+*.nc4
+*.grd
+*.tif
+*.tiff
+*.h5
+*.hdf5
+data/*.nc
+data/*.nc4
+data/GEBCO*
+

@@ -22,49 +22,25 @@ export async function askMarivex(
   question: string,
   context: AssistantQueryContext
 ): Promise<{ text: string; sources: string[]; isLiveAi: boolean }> {
-  const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || (typeof process !== 'undefined' ? (process as any).env?.GEMINI_API_KEY : '');
-
-  // If a valid Gemini API key is present in environment, invoke @google/genai
-  if (apiKey) {
-    try {
-      const { GoogleGenAI } = await import('@google/genai');
-      const ai = new GoogleGenAI({ apiKey });
-      
-      const systemPrompt = `You are "Ask MARIVEX", an expert marine scientist and oceanographic telemetry assistant for the MARIVEX 3D ocean visualizer.
-You provide precise, scientifically accurate answers grounded in available datasets.
-Current Telemetry Context:
-- Coordinates: ${context.coords ? `${context.coords.latitude.toFixed(2)}°N, ${context.coords.longitude.toFixed(2)}°E` : 'Global grid'}
-- Region: ${context.region?.name || context.oceanData?.oceanBasin || 'Open Ocean'}
-- Seafloor Depth: ${context.oceanData?.bathymetryDepth ?? context.depth} meters (GEBCO 2024)
-- Significant Wave Height (Thgt): ${context.oceanData?.waveHeight !== null ? `${context.oceanData?.waveHeight} m` : 'N/A'}
-- Wave Period (Tper): ${context.oceanData?.wavePeriod !== null ? `${context.oceanData?.wavePeriod} s` : 'N/A'}
-- Wave Direction (Tdir): ${context.oceanData?.waveDirection !== null ? `${context.oceanData?.waveDirection}°` : 'N/A'}
-- Sea Surface Temperature: ${context.oceanData?.temperature !== null ? `${context.oceanData?.temperature} °C` : 'N/A'}
-- Surface Wind Speed: ${context.oceanData?.windSpeed !== null ? `${context.oceanData?.windSpeed} km/h` : 'N/A'}
-- Current Velocity: ${context.oceanData?.currentSpeed !== null ? `${context.oceanData?.currentSpeed} km/h` : 'N/A'}
-- Observation Timestamp: ${context.oceanData?.time || 'Current UTC Synoptic Cycle'}
-- Data Source: NOAA WaveWatch III (WW3 via ERDDAP), Open-Meteo High-Resolution Marine, GEBCO 2024.
-
-Rules:
-1. Always state numerical values with proper units and timestamps.
-2. Clearly distinguish empirical measurements from physical oceanographic explanations.
-3. If data is not available, state that explicitly. Never invent numbers.`;
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: `${systemPrompt}\n\nUser Question: ${question}`
-      });
-
-      if (response && response.text) {
+  // Query server-side Gemini API proxy route
+  try {
+    const res = await fetch('/api/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question, context })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.text) {
         return {
-          text: response.text,
-          sources: ['NOAA WaveWatch III (ERDDAP)', 'Open-Meteo Marine Grid', 'GEBCO 2024 Bathymetric Grid'],
+          text: data.text,
+          sources: data.sources || ['NOAA WaveWatch III (ERDDAP)', 'Open-Meteo Marine Grid', 'GEBCO 2024 Bathymetric Grid'],
           isLiveAi: true
         };
       }
-    } catch (err) {
-      console.warn('Gemini API call bypassed, falling back to grounded oceanographic reasoning engine:', err);
     }
+  } catch (err) {
+    console.warn('Server proxy unavailable, falling back to grounded oceanographic reasoning engine:', err);
   }
 
   // Grounded Deterministic Oceanographic Scientific Reasoning Engine
